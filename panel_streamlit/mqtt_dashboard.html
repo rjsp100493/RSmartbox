@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SIM7000G Corriente, Voltaje y GPS</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    #authOverlay {
+      position: fixed;
+      inset: 0;
+      background: #0b1224;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      font-size: 18px;
+      flex-direction: column;
+      gap: 12px;
+    }
+    body {
+      margin: 0; padding: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0b1224; color: #e5e7eb;
+      display: flex; justify-content: center; align-items: flex-start;
+      min-height: 100vh;
+    }
+    .container { width: 900px; max-width: 95vw; margin-top: 24px; }
+    .card {
+      background: linear-gradient(145deg, #0e162b, #0b111f);
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+      margin-bottom: 16px;
+    }
+    .header { display:flex; gap:12px; flex-wrap:wrap; }
+    .title { font-size: 18px; font-weight: 700; margin:0; }
+    .subtitle { font-size: 12px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; }
+    input {
+      width: 100%; padding: 8px 10px; margin-top: 4px; margin-bottom: 8px;
+      border-radius: 8px; border: 1px solid #1f2937; background: #0b1020; color: #e5e7eb;
+    }
+    label { font-size: 12px; color: #9ca3af; }
+    .metrics { display:flex; gap:16px; flex-wrap:wrap; }
+    .metric-box { flex:1; min-width:180px; background:#0c1427; border:1px solid #1f2937; border-radius:10px; padding:12px; }
+    .metric-label { font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; }
+    .metric-value { font-size:28px; font-weight:700; margin-top:4px; }
+    .logs-card { margin-top:16px; background:#0c1427; border:1px solid #1f2937; border-radius:12px; padding:12px; }
+    .logs-header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .label { font-size:14px; font-weight:700; }
+    .caption { font-size:12px; color:#9ca3af; }
+    .logs-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .logs-controls select, .logs-controls button, .logs-controls input {
+      background:#0b1020; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 8px;
+    }
+    .logs-controls button { background:#2563eb; cursor:pointer; }
+    .logs-body { margin-top:10px; background:#0b1020; border:1px solid #1f2937; border-radius:10px; padding:10px; max-height:220px; overflow:auto; }
+    pre { margin:0; font-family: 'Fira Code', monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; }
+    .range-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+    .range-controls input { width:auto; min-width:180px; }
+    .status-pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid #1f2937; background:#0c1427; }
+    .status-dot { width:12px; height:12px; border-radius:50%; background:#6b7280; }
+    .switch { display:inline-flex; align-items:center; gap:10px; }
+    .toggle {
+      position: relative;
+      width: 60px; height: 30px;
+      background: #1f2937;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background .2s ease;
+      border: 1px solid #111827;
+    }
+    .toggle .knob {
+      position: absolute;
+      width: 26px; height: 26px;
+      top: 1px; left: 1px;
+      background: #9ca3af;
+      border-radius: 50%;
+      transition: all .2s ease;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+    .toggle.on { background: #22c55e; }
+    .toggle.on .knob { left: 33px; background: #0b1224; }
+  </style>
+</head>
+<body>
+  <div id="authOverlay">
+    <div>Autenticación requerida</div>
+  </div>
+  <div class="container">
+    <div class="card">
+      <div class="title">Conexion MQTT</div>
+      <div class="header">
+        <div style="flex:1; min-width:180px;">
+          <label>Broker WS/WSS</label>
+          <input id="broker" value="wss://test.mosquitto.org:8081">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic estado</label>
+          <input id="topicState" value="sim7000g/estado">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic GPS</label>
+          <input id="topicGps" value="sim7000g/gps">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic comando</label>
+          <input id="topicCmd" value="sim7000g/cmd">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Usuario (opcional)</label>
+          <input id="user" value="">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Contrasena (opcional)</label>
+          <input id="pass" type="password" value="">
+        </div>
+      </div>
+      <button style="width:100%; padding:10px; border:0; border-radius:10px; font-weight:700; background:#22c55e; color:#0b1224; cursor:pointer; margin-top:8px;" onclick="connect()">Conectar</button>
+      <div id="connStatus" class="subtitle" style="margin-top:8px;">Desconectado</div>
+    </div>
+
+    <div class="logs-card">
+      <div class="logs-header">
+        <div>
+          <div class="label">Historico (Database)</div>
+          <div class="caption">Ultimas lineas almacenadas en la base de datos</div>
+        </div>
+        <div class="logs-controls">
+          <label for="startDt">Desde:</label>
+          <input type="datetime-local" id="startDt">
+          <label for="endDt">Hasta:</label>
+          <input type="datetime-local" id="endDt">
+          <button id="btnFetchRange">Consultar</button>
+        </div>
+      </div>
+      <div class="logs-body" id="logsBody">
+        <pre id="logsText">(sin datos)</pre>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="metrics">
+        <div class="metric-box">
+          <div class="metric-label">Corriente (A)</div>
+          <div class="metric-value" id="ampText">--</div>
+          <div class="subtitle" id="ampTs">Ultima actualizacion: --</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Voltaje (V)</div>
+          <div class="metric-value" id="voltText">--</div>
+          <div class="subtitle" id="voltTs">Ultima actualizacion: --</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div class="status-pill">
+          <div class="status-dot" id="statusDot"></div>
+          <div id="statusText">Estado: --</div>
+        </div>
+        <div class="switch">
+          <label for="relayToggle">Bomba</label>
+          <div id="relayToggle" class="toggle"><div class="knob"></div></div>
+          <span id="relayLabel">OFF</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="subtitle">Graficas en tiempo real</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:360px;">
+          <canvas id="chartI" height="160"></canvas>
+        </div>
+        <div style="flex:1; min-width:360px;">
+          <canvas id="chartV" height="160"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="subtitle">Posicion GNSS</div>
+      <div id="map" style="height:260px; border-radius:12px;"></div>
+      <div class="subtitle" id="gpsTs">Ultima actualizacion: --</div>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary style="cursor:pointer; font-weight:700;">Ajustes (click para desplegar)</summary>
+        <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:12px;">
+          <div style="flex:1; min-width:180px;">
+            <label>Setpoint voltaje (V)</label>
+            <input type="number" id="cfgSetV" value="120">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>% tolerancia voltaje (ej 0.10 = ±10%)</label>
+            <input type="number" step="0.01" id="cfgTolV" value="0.10">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>Setpoint corriente (A)</label>
+            <input type="number" id="cfgSetI" value="10">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>% sobrecorriente (ej 0.20 = +20%)</label>
+            <input type="number" step="0.01" id="cfgOverI" value="0.20">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>% bajo corriente (ej 0.10 = -10%)</label>
+            <input type="number" step="0.01" id="cfgUnderI" value="0.10">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>Tiempo recuperacion (min)</label>
+            <input type="number" id="cfgRecMin" value="15">
+          </div>
+        </div>
+        <button id="btnSaveCfg" style="margin-top:12px; padding:8px 12px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer;">Guardar ajustes</button>
+      </details>
+    </div>
+  </div>
+
+  <script>
+    // Autenticación básica en cliente (no es seguridad fuerte)
+    (function authGate() {
+      const overlay = document.getElementById('authOverlay');
+      const USER = 'rsanchez';
+      const PASS = 'Rsmartpump';
+      function ask() {
+        const u = prompt('Usuario:');
+        const p = prompt('Contraseña:');
+        if (u === USER && p === PASS) {
+          overlay.style.display = 'none';
+        } else {
+          alert('Acceso denegado');
+          ask();
+        }
+      }
+      ask();
+    })();
+
+    let client = null;
+    const connStatus = document.getElementById('connStatus');
+    const ampText = document.getElementById('ampText');
+    const ampTs = document.getElementById('ampTs');
+    const voltText = document.getElementById('voltText');
+    const voltTs = document.getElementById('voltTs');
+    const gpsTs = document.getElementById('gpsTs');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const relayToggle = document.getElementById('relayToggle');
+    const relayLabel = document.getElementById('relayLabel');
+
+    const labelsI = [];
+    const dataCurrent = [];
+    const labelsV = [];
+    const dataVolt = [];
+    const maxPoints = 40;
+    const apiBase = 'http://localhost:5000'; // API local
+    const logsText = document.getElementById('logsText');
+    const startDt = document.getElementById('startDt');
+    const endDt = document.getElementById('endDt');
+    const btnFetchRange = document.getElementById('btnFetchRange');
+
+    const chartI = new Chart(document.getElementById('chartI').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labelsI,
+        datasets: [
+          { label: 'Corriente (A)', data: dataCurrent, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true, min: 0 }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
+    const chartV = new Chart(document.getElementById('chartV').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labelsV,
+        datasets: [
+          { label: 'Voltaje (V)', data: dataVolt, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.1)', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true, min: 0 }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
+    const map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    const marker = L.marker([0, 0]).addTo(map);
+
+    function addPointCurrent(label, val) {
+      labelsI.push(label);
+      dataCurrent.push(val);
+      if (labelsI.length > maxPoints) {
+        labelsI.shift();
+        dataCurrent.shift();
+      }
+      chartI.update('none');
+    }
+
+    function addPointVolt(label, val) {
+      labelsV.push(label);
+      dataVolt.push(val);
+      if (labelsV.length > maxPoints) {
+        labelsV.shift();
+        dataVolt.shift();
+      }
+      chartV.update('none');
+    }
+
+    function setCurrent(val) {
+      const num = parseFloat(val);
+      if (isNaN(num)) return;
+      const valStr = num.toFixed(1);
+      ampText.textContent = valStr;
+      const t = new Date();
+      const ts = t.toLocaleTimeString();
+      ampTs.textContent = "Ultima actualizacion: " + ts;
+      addPointCurrent(ts, num);
+    }
+
+    function setVoltage(val) {
+      let num = parseFloat(val);
+      if (isNaN(num)) return;
+      if (num < 5) num = 0;
+      const valStr = num.toFixed(0);
+      voltText.textContent = valStr;
+      const t = new Date();
+      const ts = t.toLocaleTimeString();
+      voltTs.textContent = "Ultima actualizacion: " + ts;
+      addPointVolt(ts, num);
+    }
+
+    function setGps(jsonStr) {
+      try {
+        const data = JSON.parse(jsonStr);
+        if (typeof data.lat !== 'number' || typeof data.lng !== 'number') return;
+        marker.setLatLng([data.lat, data.lng]);
+        map.setView([data.lat, data.lng], 14);
+        gpsTs.textContent = "Ultima actualizacion: " + new Date().toLocaleTimeString();
+      } catch (e) {
+        console.warn("GPS parse error", e);
+      }
+    }
+
+    async function fetchRange() {
+      const sVal = startDt.value ? Math.floor(new Date(startDt.value).getTime() / 1000) : 0;
+      const eVal = endDt.value ? Math.floor(new Date(endDt.value).getTime() / 1000) : 0;
+      if (!sVal || !eVal) {
+        logsText.textContent = 'Completa fecha/hora inicio y fin';
+        return;
+      }
+      logsText.textContent = 'Consultando...';
+      try {
+        const resp = await fetch(`${apiBase}/lecturas?start=${sVal}&end=${eVal}`);
+        const data = await resp.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          logsText.textContent = '(sin datos)';
+          return;
+        }
+        // Dedup por timestamp para evitar duplicados consecutivos
+        const uniq = [];
+        let prevTs = null;
+        for (const d of data) {
+          if (d.ts === prevTs) continue;
+          prevTs = d.ts;
+          uniq.push(d);
+        }
+        const lines = uniq.map(d => {
+          const ts = new Date(d.ts * 1000).toLocaleString();
+          const estado = (d.estado !== undefined && d.estado !== null) ? ` | estado=${d.estado}` : '';
+          const tfallaI = (typeof d.corriente_falla === 'number') ? ` | Ifalla=${d.corriente_falla}` : '';
+          const tfallaV = (typeof d.voltaje_falla === 'number') ? ` | Vfalla=${d.voltaje_falla}` : '';
+          const ttrab = (typeof d.t_trabajo_min === 'number') ? ` | tTrabajo=${d.t_trabajo_min}m` : '';
+          const trec = (typeof d.t_recuperando_min === 'number') ? ` | tRec=${d.t_recuperando_min}m` : '';
+          const trectot = (typeof d.t_rec_total_min === 'number') ? ` | tRecTotal=${d.t_rec_total_min}m` : '';
+          return `${ts} | I=${d.corriente}A | V=${d.voltaje}V${estado}${tfallaI}${tfallaV}${ttrab}${trec}${trectot}`;
+        });
+        logsText.textContent = lines.join('\n');
+      } catch (err) {
+        logsText.textContent = 'error api: ' + err;
+      }
+    }
+
+    function setStatus(state) {
+      let color = '#6b7280';
+      let label = 'Estado: --';
+      if (state === 'bombeando') { color = '#22c55e'; label = 'Bombeando'; }
+      else if (state === 'recuperando') { color = '#f59e0b'; label = 'Recuperando'; }
+      else if (state && state.startsWith('detenido')) { color = '#ef4444'; label = state; }
+      statusDot.style.background = color;
+      statusText.textContent = label;
+    }
+
+    const setRelayUi = (isOn) => {
+      if (isOn) {
+        relayToggle.classList.add('on');
+        relayLabel.textContent = 'ON';
+      } else {
+        relayToggle.classList.remove('on');
+        relayLabel.textContent = 'OFF';
+      }
+    };
+    relayToggle.onclick = () => {
+      const isOn = !relayToggle.classList.contains('on');
+      setRelayUi(isOn);
+      const tCmd = document.getElementById('topicCmd').value.trim();
+      const payload = JSON.stringify({ relay: isOn ? "on" : "off" });
+      if (client && client.connected) client.publish(tCmd, payload);
+    };
+
+    function sendConfig() {
+      const tCmd = document.getElementById('topicCmd').value.trim();
+      const payload = {
+        setpointV: parseFloat(document.getElementById('cfgSetV').value),
+        voltTol: parseFloat(document.getElementById('cfgTolV').value),
+        setpointA: parseFloat(document.getElementById('cfgSetI').value),
+        overPct: parseFloat(document.getElementById('cfgOverI').value),
+        underPct: parseFloat(document.getElementById('cfgUnderI').value),
+        recMin: parseFloat(document.getElementById('cfgRecMin').value),
+      };
+      if (client && client.connected) client.publish(tCmd, JSON.stringify(payload));
+    }
+
+    document.getElementById('btnSaveCfg').onclick = sendConfig;
+
+    function connect() {
+      const url = document.getElementById('broker').value.trim();
+      const tState = document.getElementById('topicState').value.trim();
+      const tGps = document.getElementById('topicGps').value.trim();
+      const user = document.getElementById('user').value;
+      const pass = document.getElementById('pass').value;
+
+      if (client) { client.end(true); }
+
+      connStatus.textContent = "Conectando...";
+      client = mqtt.connect(url, {
+        username: user || undefined,
+        password: pass || undefined,
+        keepalive: 30,
+      });
+
+      client.on('connect', () => {
+        connStatus.textContent = "Conectado";
+        client.subscribe(tState, { qos: 1 });
+        client.subscribe(tGps, { qos: 1 });
+      });
+
+      client.on('message', (topic, payload) => {
+        const msg = payload.toString();
+        if (topic === tGps) {
+          setGps(msg);
+          return;
+        }
+        // Estado JSON
+        try {
+          const data = JSON.parse(msg);
+          if (typeof data.corriente === 'number') {
+            setCurrent(data.corriente);
+          }
+          if (typeof data.voltaje === 'number') {
+            setVoltage(data.voltaje);
+          }
+          if (data.estado) {
+            setStatus(data.estado);
+          }
+          if (typeof data.relay_on === 'boolean') {
+            setRelayUi(data.relay_on);
+          }
+        } catch (e) {
+          console.warn("Estado parse error", e);
+        }
+      });
+
+      client.on('error', (err) => {
+        connStatus.textContent = "Error: " + err.message;
+      });
+
+      client.on('close', () => {
+        connStatus.textContent = "Desconectado";
+      });
+    }
+
+    btnFetchRange.onclick = fetchRange;
+
+    // Prefill rango: ultima hora
+    (function presetRange() {
+      const now = new Date();
+      const before = new Date(now.getTime() - 60 * 60 * 1000);
+      const toIsoLocal = (d) => {
+        const off = d.getTimezoneOffset();
+        const local = new Date(d.getTime() - off * 60000);
+        return local.toISOString().slice(0,16);
+      };
+      startDt.value = toIsoLocal(before);
+      endDt.value = toIsoLocal(now);
+    })();
+  </script>
+</body>
+</html>

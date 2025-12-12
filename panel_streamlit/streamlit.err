@@ -1,0 +1,26 @@
+2025-11-28 02:24:53.647 Uncaught app exception
+Traceback (most recent call last):
+  File "C:\Users\rodri\AppData\Local\Programs\Python\Python312\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 88, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "C:\Users\rodri\AppData\Local\Programs\Python\Python312\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 579, in code_to_exec
+    exec(code, module.__dict__)
+  File "C:\Users\rodri\Documents\PlatformIO\Projects\Pump RSmartbox\panel_streamlit\app.py", line 115, in <module>
+    main()
+  File "C:\Users\rodri\Documents\PlatformIO\Projects\Pump RSmartbox\panel_streamlit\app.py", line 111, in main
+    st.autorefresh(interval=3000, key="refresh")
+    ^^^^^^^^^^^^^^
+AttributeError: module 'streamlit' has no attribute 'autorefresh'
+2025-11-28 02:25:38.018 Uncaught app exception
+Traceback (most recent call last):
+  File "C:\Users\rodri\AppData\Local\Programs\Python\Python312\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 88, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+  File "C:\Users\rodri\AppData\Local\Programs\Python\Python312\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 579, in code_to_exec
+    exec(code, module.__dict__)
+  File "C:\Users\rodri\Documents\PlatformIO\Projects\Pump RSmartbox\panel_streamlit\app.py", line 116, in <module>
+    main()
+  File "C:\Users\rodri\Documents\PlatformIO\Projects\Pump RSmartbox\panel_streamlit\app.py", line 112, in main
+    st.experimental_rerun()
+    ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'streamlit' has no attribute 'experimental_rerun'. Did you mean: 'experimental_user'?
