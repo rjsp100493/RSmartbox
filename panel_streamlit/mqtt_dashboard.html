@@ -230,11 +230,22 @@
       const overlay = document.getElementById('authOverlay');
       const USER = 'rsanchez';
       const PASS = 'Rsmartpump';
+      const KEY = 'panelAuth';
+      const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (saved && saved.user === USER && saved.expires > Date.now()) {
+          overlay.style.display = 'none';
+          return;
+        }
+      } catch (e) {}
       function ask() {
         const u = prompt('Usuario:');
         const p = prompt('Contraseña:');
         if (u === USER && p === PASS) {
           overlay.style.display = 'none';
+          const record = { user: USER, expires: Date.now() + TEN_DAYS_MS };
+          try { localStorage.setItem(KEY, JSON.stringify(record)); } catch (e) {}
         } else {
           alert('Acceso denegado');
           ask();
@@ -260,7 +271,7 @@
     const labelsV = [];
     const dataVolt = [];
     const maxPoints = 40;
-    const apiBase = 'http://localhost:5000'; // API local
+    const apiBase = window.location.origin; // usa el mismo host que sirve el panel
     const logsText = document.getElementById('logsText');
     const startDt = document.getElementById('startDt');
     const endDt = document.getElementById('endDt');
