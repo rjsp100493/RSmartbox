@@ -8,4 +8,5 @@ __pycache__/
 .venv/
 venv/
 lecturas.db
+lecturas.db-*
 .DS_Store

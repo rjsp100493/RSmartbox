@@ -2,6 +2,7 @@
 #include <cmath>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#include <esp_system.h>
 
 #define TINY_GSM_MODEM_SIM7000
 #define TINY_GSM_USE_GPRS true
@@ -26,7 +27,10 @@ constexpr int I2C_SDA     = 21;
 constexpr int I2C_SCL     = 22;
 constexpr uint8_t LCD_ADDR = 0x27; // cambia a 0x3F si tu backpack usa esa dirección
 constexpr int RELAY_PIN   = 25;
-constexpr int BUTTON_PIN  = 32; // entrada con pull-up
+constexpr int BUTTON_PIN  = 32; // pulsador en GPIO32
+// false: pulsador entre 3.3V y GPIO (activo HIGH) + INPUT_PULLDOWN
+// true : pulsador entre GND  y GPIO (activo LOW)  + INPUT_PULLUP
+constexpr bool BUTTON_ACTIVE_LOW = false;
 constexpr bool RELAY_ACTIVE_LOW = false; // activo en alto
 
 #define SerialMon Serial
@@ -100,10 +104,11 @@ bool manualOffState = false;
 
 // Botón / edición
 bool rawButtonState = HIGH;
+bool lastRawButtonState = HIGH;
 bool debouncedState = HIGH;
 bool prevDebouncedState = HIGH;
 unsigned long lastDebounceMs = 0;
-const unsigned long debounceIntervalMs = 120;
+const unsigned long debounceIntervalMs = 45;
 unsigned long buttonPressStart = 0;
 unsigned long lastIncrementMs = 0;
 enum EditState { EDIT_NONE, EDIT_SETPOINT, EDIT_RECUP };
@@ -123,6 +128,22 @@ const int EEPROM_ADDR_RECUP_MIN = sizeof(float);  // uint16_t
 // Adelantos de funciones que se usan antes de definirse
 void handleButton();
 unsigned long getTimestamp();
+
+const char* resetReasonStr(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SW:        return "SW_RESET";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_EXT:       return "EXT_RESET";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "UNKNOWN";
+  }
+}
 
 void powerOnModem() {
   pinMode(PWRKEY, OUTPUT);
@@ -589,15 +610,15 @@ void updateLcd() {
   if (messageUntil > now) {
     l1 = msgLine1;
     l2 = msgLine2;
-  } else if (manualOverride && !manualRelay) {
-    l1 = "APAGADO";
-    l2 = "desde app web";
   } else if (editState == EDIT_SETPOINT) {
     l1 = "Edite Corriente";
     l2 = "Valor: " + String((int)setpointA);
   } else if (editState == EDIT_RECUP) {
     l1 = "Edite T Recup...";
     l2 = "Valor: " + String(tiempoRecuperacionMs / 60000UL);
+  } else if (manualOverride && !manualRelay) {
+    l1 = "APAGADO";
+    l2 = "desde app web";
   } else {
     switch (sysState) {
       case STATE_STARTUP:
@@ -653,61 +674,90 @@ void updateLcd() {
 }
 
 void handleButton() {
-  unsigned long now = millis();
-  rawButtonState = digitalRead(BUTTON_PIN);
-  if (rawButtonState != debouncedState) {
-    if (now - lastDebounceMs >= debounceIntervalMs) {
-      prevDebouncedState = debouncedState;
-      debouncedState = rawButtonState;
-      if (prevDebouncedState == HIGH && debouncedState == LOW) { // presiona
-        buttonPressStart = now;
-      } else if (prevDebouncedState == LOW && debouncedState == HIGH) { // suelta
-        unsigned long dur = now - buttonPressStart;
+  const unsigned long now = millis();
+  const bool raw = digitalRead(BUTTON_PIN);
+  rawButtonState = raw;
 
-        if (editState == EDIT_NONE) {
-          if (dur >= longPressMs) {
-            editState = EDIT_SETPOINT;
-            setMessage("Edite Corriente", "Valor:        ", 1000);
-          }
-          return;
-        }
+  // Debounce robusto: actualiza el temporizador solo cuando cambia la lectura cruda
+  if (raw != lastRawButtonState) {
+    lastRawButtonState = raw;
+    lastDebounceMs = now;
+    return;
+  }
 
-        if (editState == EDIT_SETPOINT) {
-          if (dur >= savePressMs) {
-            EEPROM.put(EEPROM_ADDR_SETPOINT, setpointA);
-            EEPROM.commit();
-            char buf[17];
-            snprintf(buf, sizeof(buf), "Registrado:%d", (int)setpointA);
-            setMessage("Corriente:", buf, 1800);
-            editState = EDIT_RECUP;
-          } else { // incremento
-            if (now - lastIncrementMs > 250) {
-              setpointA += 1.0f;
-              if (setpointA > 30.0f) setpointA = 1.0f;
-              lastIncrementMs = now;
-            }
-          }
-          return;
-        }
+  // Espera a que la se񣢠al esté estable
+  if ((now - lastDebounceMs) < debounceIntervalMs) {
+    return;
+  }
 
-        if (editState == EDIT_RECUP) {
-          if (dur >= savePressMs) {
-            uint16_t recMin = (uint16_t)(tiempoRecuperacionMs / 60000UL);
-            EEPROM.put(EEPROM_ADDR_RECUP_MIN, recMin);
-            EEPROM.commit();
-            char buf[17];
-            snprintf(buf, sizeof(buf), "Registrado:%u", (unsigned int)recMin);
-            setMessage("T de Recup:", buf, 1800);
-            editState = EDIT_NONE;
-          } else { // incremento
-            if (now - lastIncrementMs > 250) {
-              unsigned long recMin = tiempoRecuperacionMs / 60000UL + 1;
-              if (recMin > 90) recMin = 1;
-              tiempoRecuperacionMs = recMin * 60UL * 1000UL;
-              lastIncrementMs = now;
-            }
-          }
-        }
+  if (raw == debouncedState) {
+    return;
+  }
+
+  prevDebouncedState = debouncedState;
+  debouncedState = raw;
+
+  const bool pressedEdge = BUTTON_ACTIVE_LOW
+                             ? (prevDebouncedState == HIGH && debouncedState == LOW)
+                             : (prevDebouncedState == LOW && debouncedState == HIGH);
+  const bool releasedEdge = BUTTON_ACTIVE_LOW
+                              ? (prevDebouncedState == LOW && debouncedState == HIGH)
+                              : (prevDebouncedState == HIGH && debouncedState == LOW);
+
+  if (pressedEdge) {
+    buttonPressStart = now;
+    return;
+  }
+
+  if (!releasedEdge) {
+    return;
+  }
+
+  const unsigned long dur = now - buttonPressStart;
+
+  if (editState == EDIT_NONE) {
+    if (dur >= longPressMs) {
+      editState = EDIT_SETPOINT;
+      lastIncrementMs = 0;
+    }
+    return;
+  }
+
+  if (editState == EDIT_SETPOINT) {
+    if (dur >= savePressMs) {
+      EEPROM.put(EEPROM_ADDR_SETPOINT, setpointA);
+      EEPROM.commit();
+      char buf[17];
+      snprintf(buf, sizeof(buf), "Registrado:%d", (int)setpointA);
+      setMessage("Corriente:", buf, 1800);
+      editState = EDIT_RECUP;
+      lastIncrementMs = 0;
+    } else {
+      if (now - lastIncrementMs > 250) {
+        setpointA += 1.0f;
+        if (setpointA > 30.0f) setpointA = 1.0f;
+        lastIncrementMs = now;
+      }
+    }
+    return;
+  }
+
+  if (editState == EDIT_RECUP) {
+    if (dur >= savePressMs) {
+      uint16_t recMin = (uint16_t)(tiempoRecuperacionMs / 60000UL);
+      EEPROM.put(EEPROM_ADDR_RECUP_MIN, recMin);
+      EEPROM.commit();
+      char buf[17];
+      snprintf(buf, sizeof(buf), "Registrado:%u", (unsigned int)recMin);
+      setMessage("T de Recup:", buf, 1800);
+      editState = EDIT_NONE;
+      lastIncrementMs = 0;
+    } else {
+      if (now - lastIncrementMs > 250) {
+        unsigned long recMin = tiempoRecuperacionMs / 60000UL + 1;
+        if (recMin > 90) recMin = 1;
+        tiempoRecuperacionMs = recMin * 60UL * 1000UL;
+        lastIncrementMs = now;
       }
     }
   }
@@ -722,6 +772,8 @@ void setup() {
   SerialMon.begin(115200);
   delay(500);
   SerialMon.println("Boot ESP32 + SIM7000G (corriente SCT013 -> MQTT)");
+  SerialMon.print("Reset reason: ");
+  SerialMon.println(resetReasonStr(esp_reset_reason()));
 
   Wire.begin(I2C_SDA, I2C_SCL);
   scanI2C();
@@ -735,9 +787,21 @@ void setup() {
   lcd.noBlink();
   lcdReady = true;
 
+  // Muestra la causa de reinicio por 2s al arrancar
+  lcd.setCursor(0, 0);
+  lcd.print("Reset:");
+  lcd.setCursor(0, 1);
+  lcd.print(resetReasonStr(esp_reset_reason()));
+  delay(2000);
+
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? HIGH : LOW); // inicia apagado
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_PIN, BUTTON_ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
+  rawButtonState = digitalRead(BUTTON_PIN);
+  lastRawButtonState = rawButtonState;
+  debouncedState = rawButtonState;
+  prevDebouncedState = rawButtonState;
+  lastDebounceMs = millis();
 
   EEPROM.begin(64);
   // Cargar setpoint y tiempo desde EEPROM si son válidos

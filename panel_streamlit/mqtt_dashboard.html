@@ -3,11 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <title>SIM7000G Corriente, Voltaje y GPS</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap">
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
+    :root {
+      --ink: #e5e7eb;
+      --muted: #9ca3af;
+      --panel: #0c1427;
+      --panel-deep: #0a0f1d;
+      --line: #1f2937;
+      --pipe: #263146;
+      --accent: #22c55e;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --blue: #60a5fa;
+    }
     #authOverlay {
       position: fixed;
       inset: 0;
@@ -23,7 +36,7 @@
     }
     body {
       margin: 0; padding: 0;
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-family: 'Rajdhani', 'Share Tech Mono', sans-serif;
       background: #0b1224; color: #e5e7eb;
       display: flex; justify-content: center; align-items: flex-start;
       min-height: 100vh;
@@ -45,6 +58,40 @@
       border-radius: 8px; border: 1px solid #1f2937; background: #0b1020; color: #e5e7eb;
     }
     label { font-size: 12px; color: #9ca3af; }
+    .hidden { display: none !important; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: #07140b;
+      box-shadow: 0 8px 18px rgba(34,197,94,0.25);
+      border: 0;
+    }
+    .btn-blue {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: #f8fafc;
+      box-shadow: 0 8px 18px rgba(59,130,246,0.25);
+      border: 0;
+    }
+    .btn-outline {
+      background: transparent;
+      color: #e5e7eb;
+      border: 1px solid #1f2937;
+    }
+    .btn:hover { filter: brightness(1.05); }
     .metrics { display:flex; gap:16px; flex-wrap:wrap; }
     .metric-box { flex:1; min-width:180px; background:#0c1427; border:1px solid #1f2937; border-radius:10px; padding:12px; }
     .metric-label { font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; }
@@ -54,10 +101,10 @@
     .label { font-size:14px; font-weight:700; }
     .caption { font-size:12px; color:#9ca3af; }
     .logs-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .logs-controls select, .logs-controls button, .logs-controls input {
+    .logs-controls select, .logs-controls input {
       background:#0b1020; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:6px 8px;
     }
-    .logs-controls button { background:#2563eb; cursor:pointer; }
+    .logs-controls .btn { padding: 8px 12px; }
     .logs-body { margin-top:10px; background:#0b1020; border:1px solid #1f2937; border-radius:10px; padding:10px; max-height:220px; overflow:auto; }
     pre { margin:0; font-family: 'Fira Code', monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; }
     .range-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
@@ -85,6 +132,501 @@
     }
     .toggle.on { background: #22c55e; }
     .toggle.on .knob { left: 33px; background: #0b1224; }
+    .history-grid {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .history-card {
+      background: #0b1020;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    }
+    .history-value {
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+    .history-charts {
+      margin-top: 12px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .history-charts > div {
+      flex: 1;
+      min-width: 320px;
+      background: #0b1020;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 8px;
+    }
+    .history-table-wrap {
+      margin-top: 12px;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      background: #0b1020;
+      max-height: 280px;
+      overflow: auto;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .history-table th {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      color: #e5e7eb;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 11px;
+      padding: 8px;
+      border-bottom: 1px solid #1f2937;
+    }
+    .history-table td {
+      padding: 8px;
+      border-bottom: 1px solid #1f2937;
+      color: #cbd5e1;
+    }
+    .history-table tr:nth-child(even) {
+      background: rgba(15,23,42,0.35);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .status-badge.ok {
+      background: rgba(34,197,94,0.15);
+      color: #86efac;
+      border-color: rgba(34,197,94,0.35);
+    }
+    .status-badge.warn {
+      background: rgba(245,158,11,0.15);
+      color: #fde68a;
+      border-color: rgba(245,158,11,0.35);
+    }
+    .status-badge.danger {
+      background: rgba(239,68,68,0.15);
+      color: #fecaca;
+      border-color: rgba(239,68,68,0.35);
+    }
+    .status-badge.off {
+      background: rgba(148,163,184,0.15);
+      color: #e2e8f0;
+      border-color: rgba(148,163,184,0.35);
+    }
+    .conn-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .conn-status {
+      font-size: 12px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .schedule-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .schedule-status {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #9ca3af;
+    }
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .day-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #0b1020;
+      color: #e5e7eb;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .schedule-times {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .schedule-times > div {
+      flex: 1;
+      min-width: 160px;
+    }
+    .slot-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+      width: 100%;
+      background: #0b1020;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .slot-row > div {
+      flex: 1;
+      min-width: 140px;
+    }
+    .slot-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 4px;
+    }
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #0b1020;
+      color: #e5e7eb;
+      font-size: 20px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.2s ease;
+    }
+    .icon-btn.primary {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: #f8fafc;
+      border: 0;
+      box-shadow: 0 8px 18px rgba(59,130,246,0.25);
+    }
+    .icon-btn.danger {
+      color: #fca5a5;
+      border-color: rgba(239,68,68,0.4);
+    }
+    .icon-btn:hover { filter: brightness(1.05); }
+    details.card {
+      padding: 0;
+    }
+    details.card > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      background: linear-gradient(135deg, rgba(15,23,42,0.85), rgba(10,15,29,0.85));
+      border-radius: 12px;
+    }
+    details.card > summary::-webkit-details-marker { display: none; }
+    details.card > summary::after {
+      content: "›";
+      font-size: 20px;
+      color: #9ca3af;
+      transform: rotate(0deg);
+      transition: transform 0.2s ease;
+    }
+    details.card[open] > summary::after { transform: rotate(90deg); }
+    details.card[open] > summary { border-bottom: 1px solid #1f2937; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    .fold-body { padding: 12px 14px 16px; }
+
+    .photo-panel {
+      background: linear-gradient(160deg, #0d152b 0%, #0a0f1d 100%);
+      border: 1px solid #1f2937;
+      border-radius: 16px;
+      padding: 14px;
+    }
+    .photo-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 512 / 266;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid #1f2937;
+      background: #0b1020;
+    }
+    .panel-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: opacity 0.25s ease;
+    }
+    .photo-wrap.show-on #bgOn { opacity: 1; }
+    .photo-wrap.show-on #bgOff { opacity: 0; }
+    #bgOn { opacity: 0; }
+    #bgOff { opacity: 1; }
+    .overlay-screen {
+      position: absolute;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      flex-direction: column;
+      text-align: left;
+      color: #0f172a;
+      font-family: 'Share Tech Mono', monospace;
+      text-shadow: 0 1px 1px rgba(255,255,255,0.7);
+      pointer-events: none;
+      padding-left: 10%;
+    }
+    .overlay-estado {
+      left: 6%;
+      top: 7%;
+      width: 32%;
+      height: 24%;
+      padding-left: 3%;
+      gap: 6px;
+      font-size: clamp(14px, 2.4vw, 22px);
+    }
+    .overlay-volt {
+      left: 42%;
+      top: 6%;
+      width: 16%;
+      height: 16%;
+      gap: 2px;
+    }
+    .overlay-pres {
+      left: 69%;
+      top: 45%;
+      width: 18%;
+      height: 13%;
+      padding-left: 0%;
+      font-size: clamp(12px, 2.0vw, 18px);
+    }
+    .overlay-caudal {
+      left: 43%;
+      top: 66%;
+      width: 20%;
+      height: 14%;
+      padding-left: 3%;
+      font-size: clamp(12px, 2.0vw, 18px);
+    }
+    .overlay-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: 4px;
+    }
+    .overlay-value {
+      font-size: clamp(14px, 2.4vw, 22px);
+      font-weight: 700;
+    }
+    .overlay-unit {
+      font-size: clamp(10px, 1.6vw, 14px);
+      color: #334155;
+    }
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .panel-updates {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .plant-panel {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(1200px 600px at 20% -10%, rgba(96,165,250,0.12), transparent 40%),
+        radial-gradient(900px 500px at 90% 10%, rgba(34,197,94,0.12), transparent 45%),
+        linear-gradient(160deg, #0d152b 0%, #0a0f1d 100%);
+    }
+    .plant-panel::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border-radius: 14px;
+      background:
+        linear-gradient(var(--pipe) 0 0) 6% 26% / 88% 6px no-repeat,
+        linear-gradient(var(--pipe) 0 0) 50% 0% / 6px 100% no-repeat,
+        linear-gradient(var(--pipe) 0 0) 25% 72% / 70% 6px no-repeat,
+        radial-gradient(circle at 18% 26%, #3b465e 0 8px, transparent 9px),
+        radial-gradient(circle at 82% 26%, #3b465e 0 8px, transparent 9px),
+        radial-gradient(circle at 28% 72%, #3b465e 0 8px, transparent 9px);
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    .panel-head {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .panel-tag {
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #cbd5f5;
+      font-size: 14px;
+    }
+    .panel-meta {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .pipe-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(220px, 1.2fr) minmax(160px, 0.8fr) minmax(260px, 1.4fr);
+      grid-template-rows: minmax(140px, 1fr) minmax(120px, 0.8fr);
+      grid-template-areas:
+        "estado control volt"
+        "caudal control sensor";
+      gap: 16px;
+    }
+    .screen {
+      background: linear-gradient(180deg, #0b111f 0%, #090d18 100%);
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 14px rgba(0,0,0,0.35);
+    }
+    .screen-label {
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #cbd5e1;
+      background: #111827;
+      padding: 4px 8px;
+      border-radius: 8px;
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+    .screen-estado { grid-area: estado; }
+    .screen-control { grid-area: control; }
+    .screen-volt { grid-area: volt; }
+    .screen-caudal { grid-area: caudal; }
+    .screen-sensor { grid-area: sensor; }
+    .state-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .state-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .readout-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .readout-label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .readout-value {
+      font-size: 30px;
+      font-weight: 700;
+      color: #e2e8f0;
+      font-family: 'Share Tech Mono', monospace;
+      min-width: 70px;
+      text-align: right;
+    }
+    .readout-unit {
+      font-size: 16px;
+      color: var(--muted);
+    }
+    .readout-time {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .lamp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .lamp {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #1f2937;
+      box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 0 0 2px #0b1224;
+    }
+    .lamp.green.active {
+      background: #22c55e;
+      box-shadow: 0 0 12px rgba(34,197,94,0.6);
+    }
+    .lamp.red.active {
+      background: #ef4444;
+      box-shadow: 0 0 12px rgba(239,68,68,0.6);
+    }
+    .lamp-text {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .ghost {
+      font-size: 14px;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 12px;
+    }
+    @media (max-width: 880px) {
+      .pipe-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        grid-template-areas:
+          "estado"
+          "volt"
+          "control"
+          "caudal"
+          "sensor";
+      }
+    }
   </style>
 </head>
 <body>
@@ -93,8 +635,14 @@
   </div>
   <div class="container">
     <div class="card">
-      <div class="title">Conexion MQTT</div>
-      <div class="header">
+      <div class="conn-bar">
+        <div>
+          <div class="title">Conexion MQTT</div>
+          <div id="connStatus" class="conn-status">Desconectado</div>
+        </div>
+        <button class="btn btn-primary" onclick="connect()">Conectar</button>
+      </div>
+      <div class="header hidden">
         <div style="flex:1; min-width:180px;">
           <label>Broker WS/WSS</label>
           <input id="broker" value="wss://test.mosquitto.org:8081">
@@ -120,75 +668,185 @@
           <input id="pass" type="password" value="">
         </div>
       </div>
-      <button style="width:100%; padding:10px; border:0; border-radius:10px; font-weight:700; background:#22c55e; color:#0b1224; cursor:pointer; margin-top:8px;" onclick="connect()">Conectar</button>
-      <div id="connStatus" class="subtitle" style="margin-top:8px;">Desconectado</div>
     </div>
 
-    <div class="logs-card">
-      <div class="logs-header">
-        <div>
-          <div class="label">Historico (Database)</div>
-          <div class="caption">Ultimas lineas almacenadas en la base de datos</div>
-        </div>
-        <div class="logs-controls">
-          <label for="startDt">Desde:</label>
-          <input type="datetime-local" id="startDt">
-          <label for="endDt">Hasta:</label>
-          <input type="datetime-local" id="endDt">
-          <button id="btnFetchRange">Consultar</button>
-        </div>
-      </div>
-      <div class="logs-body" id="logsBody">
-        <pre id="logsText">(sin datos)</pre>
-      </div>
-    </div>
+    <div class="card photo-panel">
+      <div class="photo-wrap" id="panelWrap">
+        <img id="bgOff" class="panel-bg" src="panel_streamlit/assets/fondo_apagado.jpeg?v=20251206" alt="panel apagado">
+        <img id="bgOn" class="panel-bg" src="panel_streamlit/assets/fondo_encendido.jpeg?v=20251206" alt="panel encendido">
 
-    <div class="card">
-      <div class="metrics">
-        <div class="metric-box">
-          <div class="metric-label">Corriente (A)</div>
-          <div class="metric-value" id="ampText">--</div>
-          <div class="subtitle" id="ampTs">Ultima actualizacion: --</div>
+        <div class="overlay-screen overlay-estado">
+          <div class="state-row">
+            <div class="status-dot" id="statusDot"></div>
+            <div id="statusText">--</div>
+          </div>
         </div>
-        <div class="metric-box">
-          <div class="metric-label">Voltaje (V)</div>
-          <div class="metric-value" id="voltText">--</div>
-          <div class="subtitle" id="voltTs">Ultima actualizacion: --</div>
+
+        <div class="overlay-screen overlay-volt">
+          <div class="overlay-row">
+            <div class="overlay-value" id="voltText">--</div>
+            <div class="overlay-unit">V</div>
+          </div>
+          <div class="overlay-row">
+            <div class="overlay-value" id="ampText">--</div>
+            <div class="overlay-unit">A</div>
+          </div>
+        </div>
+
+        <div class="overlay-screen overlay-pres">
+          <div class="overlay-value" id="pressureText">N/A</div>
+        </div>
+
+        <div class="overlay-screen overlay-caudal">
+          <div class="overlay-value" id="flowText">N/A</div>
         </div>
       </div>
-    </div>
 
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-        <div class="status-pill">
-          <div class="status-dot" id="statusDot"></div>
-          <div id="statusText">Estado: --</div>
-        </div>
+      <div class="panel-actions">
         <div class="switch">
           <label for="relayToggle">Bomba</label>
           <div id="relayToggle" class="toggle"><div class="knob"></div></div>
           <span id="relayLabel">OFF</span>
         </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="subtitle">Graficas en tiempo real</div>
-      <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:360px;">
-          <canvas id="chartI" height="160"></canvas>
-        </div>
-        <div style="flex:1; min-width:360px;">
-          <canvas id="chartV" height="160"></canvas>
+        <div class="panel-updates">
+          <div id="ampTs">Ultima actualizacion: --</div>
+          <div id="voltTs">Ultima actualizacion: --</div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="subtitle">Posicion GNSS</div>
-      <div id="map" style="height:260px; border-radius:12px;"></div>
-      <div class="subtitle" id="gpsTs">Ultima actualizacion: --</div>
-    </div>
+    <details class="card" id="detailsCharts">
+      <summary>Graficas en tiempo real</summary>
+      <div class="fold-body">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:360px;">
+            <canvas id="chartI" height="160"></canvas>
+          </div>
+          <div style="flex:1; min-width:360px;">
+            <canvas id="chartV" height="160"></canvas>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+          <div style="flex:1; min-width:360px;">
+            <canvas id="chartFlow" height="160"></canvas>
+          </div>
+          <div style="flex:1; min-width:360px;">
+            <canvas id="chartPress" height="160"></canvas>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <details class="card" id="detailsSchedule">
+      <summary>Programacion</summary>
+      <div class="fold-body">
+        <div class="schedule-row">
+          <div>
+            <div class="label">Programacion automatica</div>
+            <div class="caption">Activa horarios por dia para encender/apagar la bomba</div>
+          </div>
+          <div class="switch">
+            <div id="schedToggle" class="toggle"><div class="knob"></div></div>
+            <span id="schedLabel" class="schedule-status">Apagado</span>
+          </div>
+        </div>
+
+        <fieldset id="scheduleFields" disabled style="border:0; padding:0; margin:0;">
+          <label>Dias habilitados</label>
+          <div class="schedule-grid">
+            <label class="day-chip"><input type="checkbox" value="mon" checked> Lunes</label>
+            <label class="day-chip"><input type="checkbox" value="tue" checked> Martes</label>
+            <label class="day-chip"><input type="checkbox" value="wed" checked> Miercoles</label>
+            <label class="day-chip"><input type="checkbox" value="thu" checked> Jueves</label>
+            <label class="day-chip"><input type="checkbox" value="fri" checked> Viernes</label>
+            <label class="day-chip"><input type="checkbox" value="sat" checked> Sabado</label>
+            <label class="day-chip"><input type="checkbox" value="sun" checked> Domingo</label>
+          </div>
+
+          <div class="schedule-times" id="scheduleSlots"></div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+            <button id="btnAddSlot" class="icon-btn primary" title="Agregar horario">+</button>
+            <span class="caption">Agregar otro horario</span>
+          </div>
+        </fieldset>
+
+        <button id="btnSaveSchedule" class="btn btn-blue" style="margin-top:12px;">Guardar programacion</button>
+      </div>
+    </details>
+
+    <details class="card" id="detailsLogs">
+      <summary>Historico (Database)</summary>
+      <div class="fold-body">
+        <div class="logs-header">
+          <div>
+            <div class="label">Historico (Database)</div>
+            <div class="caption">Ultimas lineas almacenadas en la base de datos</div>
+          </div>
+          <div class="logs-controls">
+            <label for="startDt">Desde:</label>
+            <input type="datetime-local" id="startDt">
+            <label for="endDt">Hasta:</label>
+            <input type="datetime-local" id="endDt">
+            <button id="btnFetchRange" class="btn btn-blue">Consultar</button>
+          </div>
+        </div>
+        <div class="history-grid">
+          <div class="history-card">
+            <div class="caption">Lecturas</div>
+            <div class="history-value" id="histCount">--</div>
+          </div>
+          <div class="history-card">
+            <div class="caption">Promedio corriente</div>
+            <div class="history-value" id="histAvgI">-- A</div>
+          </div>
+          <div class="history-card">
+            <div class="caption">Promedio voltaje</div>
+            <div class="history-value" id="histAvgV">-- V</div>
+          </div>
+          <div class="history-card">
+            <div class="caption">Rango consultado</div>
+            <div class="history-value" id="histRange">--</div>
+          </div>
+        </div>
+
+        <div class="history-charts">
+          <div>
+            <canvas id="chartHistIV" height="160"></canvas>
+          </div>
+          <div>
+            <canvas id="chartHistAux" height="160"></canvas>
+          </div>
+        </div>
+
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>I (A)</th>
+                <th>V (V)</th>
+                <th>Estado</th>
+                <th>Ifalla</th>
+                <th>Vfalla</th>
+                <th>tTrabajo</th>
+                <th>tRec</th>
+                <th>tRecTotal</th>
+              </tr>
+            </thead>
+            <tbody id="histTableBody"></tbody>
+          </table>
+          <div id="histEmpty" class="caption" style="padding:12px;">(sin datos)</div>
+        </div>
+      </div>
+    </details>
+
+    <details class="card" id="detailsMap">
+      <summary>Posicion GNSS</summary>
+      <div class="fold-body">
+        <div id="map" style="height:260px; border-radius:12px;"></div>
+        <div class="subtitle" id="gpsTs">Ultima actualizacion: --</div>
+      </div>
+    </details>
 
     <div class="card">
       <details>
@@ -219,7 +877,7 @@
             <input type="number" id="cfgRecMin" value="15">
           </div>
         </div>
-        <button id="btnSaveCfg" style="margin-top:12px; padding:8px 12px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer;">Guardar ajustes</button>
+        <button id="btnSaveCfg" class="btn btn-blue" style="margin-top:12px;">Guardar ajustes</button>
       </details>
     </div>
   </div>
@@ -263,16 +921,44 @@
     const gpsTs = document.getElementById('gpsTs');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
+    const pressureText = document.getElementById('pressureText');
+    const flowText = document.getElementById('flowText');
     const relayToggle = document.getElementById('relayToggle');
     const relayLabel = document.getElementById('relayLabel');
+    const panelWrap = document.getElementById('panelWrap');
+    const schedToggle = document.getElementById('schedToggle');
+    const schedLabel = document.getElementById('schedLabel');
+    const scheduleFields = document.getElementById('scheduleFields');
+    const btnSaveSchedule = document.getElementById('btnSaveSchedule');
+    const scheduleSlots = document.getElementById('scheduleSlots');
+    const btnAddSlot = document.getElementById('btnAddSlot');
+    const histCount = document.getElementById('histCount');
+    const histAvgI = document.getElementById('histAvgI');
+    const histAvgV = document.getElementById('histAvgV');
+    const histRange = document.getElementById('histRange');
+    const histTableBody = document.getElementById('histTableBody');
+    const histEmpty = document.getElementById('histEmpty');
 
     const labelsI = [];
     const dataCurrent = [];
     const labelsV = [];
     const dataVolt = [];
+    const labelsFlow = [];
+    const dataFlow = [];
+    const labelsPress = [];
+    const dataPress = [];
+    const histLabels = [];
+    const histI = [];
+    const histV = [];
+    const histTrab = [];
+    const histRec = [];
     const maxPoints = 40;
-    const apiBase = window.location.origin; // usa el mismo host que sirve el panel
-    const logsText = document.getElementById('logsText');
+    // API base: por defecto usa el mismo host que sirve el panel.
+    // Si abriste el HTML como archivo o por otro puerto (ej. 8000), cae a 5000 (serve.py).
+    let apiBase = window.location.origin;
+    if (!apiBase || apiBase === 'null' || window.location.protocol === 'file:' || window.location.port === '8000') {
+      apiBase = 'http://127.0.0.1:5000';
+    }
     const startDt = document.getElementById('startDt');
     const endDt = document.getElementById('endDt');
     const btnFetchRange = document.getElementById('btnFetchRange');
@@ -313,9 +999,114 @@
       }
     });
 
+    const chartFlow = new Chart(document.getElementById('chartFlow').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labelsFlow,
+        datasets: [
+          { label: 'Caudal', data: dataFlow, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true, min: 0 }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
+    const chartPress = new Chart(document.getElementById('chartPress').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labelsPress,
+        datasets: [
+          { label: 'Presion', data: dataPress, borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.1)', tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true, min: 0 }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
+    const chartHistIV = new Chart(document.getElementById('chartHistIV').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: histLabels,
+        datasets: [
+          { label: 'Corriente (A)', data: histI, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', tension: 0.25, pointRadius: 0, yAxisID: 'y' },
+          { label: 'Voltaje (V)', data: histV, borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.25, pointRadius: 0, yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true },
+          y1: { position: 'right', ticks: { color: '#9ca3af' }, grid: { drawOnChartArea: false } }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
+    const chartHistAux = new Chart(document.getElementById('chartHistAux').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: histLabels,
+        datasets: [
+          { label: 'tTrabajo (min)', data: histTrab, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.08)', tension: 0.25, pointRadius: 0 },
+          { label: 'tRec (min)', data: histRec, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', tension: 0.25, pointRadius: 0 }
+        ]
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: { ticks: { color: '#9ca3af' } },
+          y: { ticks: { color: '#9ca3af' }, beginAtZero: true }
+        },
+        plugins: { legend: { labels: { color: '#e5e7eb' } } }
+      }
+    });
+
     const map = L.map('map').setView([0, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     const marker = L.marker([0, 0]).addTo(map);
+    const detailsCharts = document.getElementById('detailsCharts');
+    const detailsLogs = document.getElementById('detailsLogs');
+    const detailsMap = document.getElementById('detailsMap');
+
+    if (detailsCharts) {
+      detailsCharts.addEventListener('toggle', () => {
+        if (detailsCharts.open) {
+          chartI.resize();
+          chartV.resize();
+          chartFlow.resize();
+          chartPress.resize();
+        }
+      });
+    }
+    if (detailsLogs) {
+      detailsLogs.addEventListener('toggle', () => {
+        if (detailsLogs.open) {
+          chartHistIV.resize();
+          chartHistAux.resize();
+        }
+      });
+    }
+    if (detailsMap) {
+      detailsMap.addEventListener('toggle', () => {
+        if (detailsMap.open) {
+          setTimeout(() => map.invalidateSize(), 150);
+        }
+      });
+    }
 
     function addPointCurrent(label, val) {
       labelsI.push(label);
@@ -335,6 +1126,26 @@
         dataVolt.shift();
       }
       chartV.update('none');
+    }
+
+    function addPointFlow(label, val) {
+      labelsFlow.push(label);
+      dataFlow.push(val);
+      if (labelsFlow.length > maxPoints) {
+        labelsFlow.shift();
+        dataFlow.shift();
+      }
+      chartFlow.update('none');
+    }
+
+    function addPointPress(label, val) {
+      labelsPress.push(label);
+      dataPress.push(val);
+      if (labelsPress.length > maxPoints) {
+        labelsPress.shift();
+        dataPress.shift();
+      }
+      chartPress.update('none');
     }
 
     function setCurrent(val) {
@@ -360,6 +1171,20 @@
       addPointVolt(ts, num);
     }
 
+    function setFlow(val) {
+      const num = parseFloat(val);
+      if (isNaN(num)) return;
+      flowText.textContent = num.toFixed(1);
+      addPointFlow(new Date().toLocaleTimeString(), num);
+    }
+
+    function setPressure(val) {
+      const num = parseFloat(val);
+      if (isNaN(num)) return;
+      pressureText.textContent = num.toFixed(1);
+      addPointPress(new Date().toLocaleTimeString(), num);
+    }
+
     function setGps(jsonStr) {
       try {
         const data = JSON.parse(jsonStr);
@@ -372,19 +1197,111 @@
       }
     }
 
+    function updateHistory(data) {
+      const resetCharts = () => {
+        histLabels.length = 0;
+        histI.length = 0;
+        histV.length = 0;
+        histTrab.length = 0;
+        histRec.length = 0;
+        chartHistIV.update('none');
+        chartHistAux.update('none');
+      };
+      if (!Array.isArray(data) || data.length === 0) {
+        histCount.textContent = '0';
+        histAvgI.textContent = '-- A';
+        histAvgV.textContent = '-- V';
+        histRange.textContent = '--';
+        histTableBody.innerHTML = '';
+        histEmpty.style.display = 'block';
+        resetCharts();
+        return;
+      }
+      histEmpty.style.display = 'none';
+      data.sort((a, b) => a.ts - b.ts);
+
+      const avg = (arr) => {
+        const vals = arr.filter(v => Number.isFinite(v));
+        if (!vals.length) return null;
+        return vals.reduce((a, b) => a + b, 0) / vals.length;
+      };
+      const currents = data.map(d => (typeof d.corriente === 'number' ? d.corriente : null));
+      const voltages = data.map(d => (typeof d.voltaje === 'number' ? d.voltaje : null));
+      const avgI = avg(currents);
+      const avgV = avg(voltages);
+
+      histCount.textContent = String(data.length);
+      histAvgI.textContent = avgI === null ? '-- A' : `${avgI.toFixed(1)} A`;
+      histAvgV.textContent = avgV === null ? '-- V' : `${avgV.toFixed(0)} V`;
+      const start = new Date(data[0].ts * 1000).toLocaleString();
+      const end = new Date(data[data.length - 1].ts * 1000).toLocaleString();
+      histRange.textContent = `${start} - ${end}`;
+
+      histLabels.length = 0;
+      histI.length = 0;
+      histV.length = 0;
+      histTrab.length = 0;
+      histRec.length = 0;
+      data.forEach(d => {
+        const label = new Date(d.ts * 1000).toLocaleTimeString();
+        histLabels.push(label);
+        histI.push(typeof d.corriente === 'number' ? d.corriente : null);
+        histV.push(typeof d.voltaje === 'number' ? d.voltaje : null);
+        histTrab.push(typeof d.t_trabajo_min === 'number' ? d.t_trabajo_min : null);
+        histRec.push(typeof d.t_recuperando_min === 'number' ? d.t_recuperando_min : null);
+      });
+      chartHistIV.update('none');
+      chartHistAux.update('none');
+
+      const rows = data.map(d => {
+        const ts = new Date(d.ts * 1000).toLocaleString();
+        const iVal = (typeof d.corriente === 'number') ? d.corriente.toFixed(1) : '--';
+        const vVal = (typeof d.voltaje === 'number') ? d.voltaje.toFixed(0) : '--';
+        const estadoRaw = (d.estado && d.estado !== 'null') ? d.estado : '';
+        let badge = 'off';
+        if (estadoRaw === 'bombeando') badge = 'ok';
+        else if (estadoRaw === 'recuperando') badge = 'warn';
+        else if (estadoRaw && estadoRaw.startsWith('detenido')) badge = 'danger';
+        const estado = estadoRaw ? `<span class="status-badge ${badge}">${estadoRaw}</span>` : '—';
+        const ifalla = (typeof d.corriente_falla === 'number') ? d.corriente_falla.toFixed(1) : '—';
+        const vfalla = (typeof d.voltaje_falla === 'number') ? d.voltaje_falla.toFixed(0) : '—';
+        const ttrab = (typeof d.t_trabajo_min === 'number') ? `${d.t_trabajo_min}m` : '—';
+        const trec = (typeof d.t_recuperando_min === 'number') ? `${d.t_recuperando_min}m` : '—';
+        const trect = (typeof d.t_rec_total_min === 'number') ? `${d.t_rec_total_min}m` : '—';
+        return `<tr>
+          <td>${ts}</td>
+          <td>${iVal}</td>
+          <td>${vVal}</td>
+          <td>${estado}</td>
+          <td>${ifalla}</td>
+          <td>${vfalla}</td>
+          <td>${ttrab}</td>
+          <td>${trec}</td>
+          <td>${trect}</td>
+        </tr>`;
+      });
+      histTableBody.innerHTML = rows.join('');
+    }
+
     async function fetchRange() {
       const sVal = startDt.value ? Math.floor(new Date(startDt.value).getTime() / 1000) : 0;
       const eVal = endDt.value ? Math.floor(new Date(endDt.value).getTime() / 1000) : 0;
       if (!sVal || !eVal) {
-        logsText.textContent = 'Completa fecha/hora inicio y fin';
+        histEmpty.style.display = 'block';
+        histEmpty.textContent = 'Completa fecha/hora inicio y fin';
         return;
       }
-      logsText.textContent = 'Consultando...';
+      histEmpty.style.display = 'block';
+      histEmpty.textContent = 'Consultando...';
+      histTableBody.innerHTML = '';
       try {
         const resp = await fetch(`${apiBase}/lecturas?start=${sVal}&end=${eVal}`);
-        const data = await resp.json();
-        if (!Array.isArray(data) || data.length === 0) {
-          logsText.textContent = '(sin datos)';
+        const txt = await resp.text();
+        let data = null;
+        try {
+          data = JSON.parse(txt);
+        } catch (e) {
+          histEmpty.textContent = `error api: respuesta no-JSON (${resp.status})`;
           return;
         }
         // Dedup por timestamp para evitar duplicados consecutivos
@@ -395,25 +1312,15 @@
           prevTs = d.ts;
           uniq.push(d);
         }
-        const lines = uniq.map(d => {
-          const ts = new Date(d.ts * 1000).toLocaleString();
-          const estado = (d.estado !== undefined && d.estado !== null) ? ` | estado=${d.estado}` : '';
-          const tfallaI = (typeof d.corriente_falla === 'number') ? ` | Ifalla=${d.corriente_falla}` : '';
-          const tfallaV = (typeof d.voltaje_falla === 'number') ? ` | Vfalla=${d.voltaje_falla}` : '';
-          const ttrab = (typeof d.t_trabajo_min === 'number') ? ` | tTrabajo=${d.t_trabajo_min}m` : '';
-          const trec = (typeof d.t_recuperando_min === 'number') ? ` | tRec=${d.t_recuperando_min}m` : '';
-          const trectot = (typeof d.t_rec_total_min === 'number') ? ` | tRecTotal=${d.t_rec_total_min}m` : '';
-          return `${ts} | I=${d.corriente}A | V=${d.voltaje}V${estado}${tfallaI}${tfallaV}${ttrab}${trec}${trectot}`;
-        });
-        logsText.textContent = lines.join('\n');
+        updateHistory(uniq);
       } catch (err) {
-        logsText.textContent = 'error api: ' + err;
+        histEmpty.textContent = 'error api: ' + err;
       }
     }
 
     function setStatus(state) {
       let color = '#6b7280';
-      let label = 'Estado: --';
+      let label = '--';
       if (state === 'bombeando') { color = '#22c55e'; label = 'Bombeando'; }
       else if (state === 'recuperando') { color = '#f59e0b'; label = 'Recuperando'; }
       else if (state && state.startsWith('detenido')) { color = '#ef4444'; label = state; }
@@ -429,6 +1336,9 @@
         relayToggle.classList.remove('on');
         relayLabel.textContent = 'OFF';
       }
+      if (panelWrap) {
+        panelWrap.classList.toggle('show-on', isOn);
+      }
     };
     relayToggle.onclick = () => {
       const isOn = !relayToggle.classList.contains('on');
@@ -437,6 +1347,85 @@
       const payload = JSON.stringify({ relay: isOn ? "on" : "off" });
       if (client && client.connected) client.publish(tCmd, payload);
     };
+
+    const setScheduleUi = (enabled) => {
+      if (enabled) {
+        schedToggle.classList.add('on');
+        schedLabel.textContent = 'Activo';
+        if (scheduleFields) scheduleFields.disabled = false;
+      } else {
+        schedToggle.classList.remove('on');
+        schedLabel.textContent = 'Apagado';
+        if (scheduleFields) scheduleFields.disabled = true;
+      }
+    };
+    if (schedToggle) {
+      setScheduleUi(false);
+      schedToggle.onclick = () => {
+        const enabled = !schedToggle.classList.contains('on');
+        setScheduleUi(enabled);
+      };
+    }
+
+    function addSlot(onVal = "08:00", offVal = "17:00") {
+      if (!scheduleSlots) return;
+      const row = document.createElement('div');
+      row.className = 'slot-row';
+      row.innerHTML = `
+        <div>
+          <label>Hora encendido</label>
+          <input type="time" class="sched-on" value="${onVal}">
+        </div>
+        <div>
+          <label>Hora apagado</label>
+          <input type="time" class="sched-off" value="${offVal}">
+        </div>
+        <div class="slot-actions">
+          <button class="icon-btn danger" type="button" title="Quitar horario">−</button>
+        </div>
+      `;
+      const removeBtn = row.querySelector('.icon-btn');
+      removeBtn.onclick = () => {
+        if (scheduleSlots.children.length > 1) {
+          row.remove();
+        } else {
+          row.querySelector('.sched-on').value = "00:00";
+          row.querySelector('.sched-off').value = "00:00";
+        }
+      };
+      scheduleSlots.appendChild(row);
+    }
+
+    if (scheduleSlots && scheduleSlots.children.length === 0) {
+      addSlot("08:00", "17:00");
+    }
+    if (btnAddSlot) {
+      btnAddSlot.onclick = () => addSlot("08:00", "17:00");
+    }
+
+    function sendSchedule() {
+      const tCmd = document.getElementById('topicCmd').value.trim();
+      const enabled = schedToggle && schedToggle.classList.contains('on');
+      const dayBoxes = Array.from(scheduleFields.querySelectorAll('input[type="checkbox"]'));
+      const days = dayBoxes.filter(b => b.checked).map(b => b.value);
+      const slotRows = Array.from(scheduleFields.querySelectorAll('.slot-row'));
+      const slots = slotRows.map(row => {
+        const on = row.querySelector('.sched-on')?.value || "00:00";
+        const off = row.querySelector('.sched-off')?.value || "00:00";
+        return { on, off };
+      });
+      const firstSlot = slots[0] || { on: "00:00", off: "00:00" };
+      const payload = {
+        schedule: {
+          enabled,
+          days,
+          slots,
+          on: firstSlot.on,
+          off: firstSlot.off
+        }
+      };
+      if (client && client.connected) client.publish(tCmd, JSON.stringify(payload));
+    }
 
     function sendConfig() {
       const tCmd = document.getElementById('topicCmd').value.trim();
@@ -452,6 +1441,9 @@
     }
 
     document.getElementById('btnSaveCfg').onclick = sendConfig;
+    if (btnSaveSchedule) {
+      btnSaveSchedule.onclick = sendSchedule;
+    }
 
     function connect() {
       const url = document.getElementById('broker').value.trim();
@@ -489,6 +1481,20 @@
           }
           if (typeof data.voltaje === 'number') {
             setVoltage(data.voltaje);
+          }
+          if (typeof data.caudal === 'number') {
+            setFlow(data.caudal);
+          } else if (typeof data.flow === 'number') {
+            setFlow(data.flow);
+          } else if (typeof data.flow_lpm === 'number') {
+            setFlow(data.flow_lpm);
+          }
+          if (typeof data.presion === 'number') {
+            setPressure(data.presion);
+          } else if (typeof data.pressure === 'number') {
+            setPressure(data.pressure);
+          } else if (typeof data.psi === 'number') {
+            setPressure(data.psi);
           }
           if (data.estado) {
             setStatus(data.estado);

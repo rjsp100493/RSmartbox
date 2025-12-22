@@ -2,16 +2,21 @@ import time
 import threading
 import sqlite3
 import json
+import os
+from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import paho.mqtt.client as mqtt
 
-DB = "lecturas.db"
+BASE_DIR = Path(__file__).resolve().parent
+DB = str(BASE_DIR / "lecturas.db")
 BROKER = "test.mosquitto.org"
 
 # --- DB init ---
-conn = sqlite3.connect(DB, check_same_thread=False)
+conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
 cur = conn.cursor()
+cur.execute("PRAGMA journal_mode=WAL;")
+cur.execute("PRAGMA synchronous=NORMAL;")
 cur.execute(
     """CREATE TABLE IF NOT EXISTS lecturas(
     ts INTEGER,
@@ -113,6 +118,8 @@ def on_message(client, userdata, msg):
 
 
 def mqtt_thread():
+    global mqtt_running
+    mqtt_running = True
     c = mqtt.Client()
     c.on_message = on_message
     c.connect(BROKER, 1883, 30)
@@ -125,6 +132,22 @@ def mqtt_thread():
 # --- API Flask ---
 app = Flask(__name__)
 CORS(app)
+
+
+@app.route("/health")
+def health():
+    cur2 = conn.cursor()
+    cur2.execute("SELECT COUNT(*), MAX(ts) FROM lecturas")
+    rows, last_ts = cur2.fetchone()
+    return jsonify(
+        {
+            "db": DB,
+            "cwd": os.getcwd(),
+            "rows": rows,
+            "last_ts": last_ts,
+            "mqtt_running": bool(mqtt_running),
+        }
+    )
 
 
 @app.route("/lecturas")
