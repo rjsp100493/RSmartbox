@@ -55,7 +55,7 @@ const char mqttAdcVTopic[] = "sim7000g/adc_v";
 
 // Factor de calibración de voltaje: Vrms_linea = vrms_adc * voltageScale
 // Ajusta con una referencia conocida
-float voltageScale = 224.0f;  // ajusta según tu referencia (Vrms_linea = vrms_adc * factor)
+float voltageScale = 209.0f;  // ajusta según tu referencia (Vrms_linea = vrms_adc * factor)
 float setpointV = 120.0f;
 float rangoVolt = 0.10f; // +-10%
 const unsigned long voltRetryMs = 120000; // 2 minutos antes de reintentar
