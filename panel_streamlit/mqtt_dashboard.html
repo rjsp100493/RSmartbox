@@ -615,6 +615,12 @@
       letter-spacing: 1px;
       margin-top: 12px;
     }
+    .fault-text {
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-top: 6px;
+      letter-spacing: 0.5px;
+    }
     @media (max-width: 880px) {
       .pipe-grid {
         grid-template-columns: 1fr;
@@ -692,6 +698,7 @@
             <div class="status-dot" id="statusDot"></div>
             <div id="statusText">--</div>
           </div>
+          <div class="fault-text" id="faultText"></div>
         </div>
 
         <div class="overlay-screen overlay-volt">
@@ -975,6 +982,12 @@
     const startDt = document.getElementById('startDt');
     const endDt = document.getElementById('endDt');
     const btnFetchRange = document.getElementById('btnFetchRange');
+    const cfgSetV = document.getElementById('cfgSetV');
+    const cfgTolV = document.getElementById('cfgTolV');
+    const cfgSetI = document.getElementById('cfgSetI');
+    const cfgOverI = document.getElementById('cfgOverI');
+    const cfgUnderI = document.getElementById('cfgUnderI');
+    const cfgRecMin = document.getElementById('cfgRecMin');
 
     const chartI = new Chart(document.getElementById('chartI').getContext('2d'), {
       type: 'line',
@@ -1332,7 +1345,7 @@
       }
     }
 
-    function setStatus(state) {
+    function setStatus(state, voltFalla, corrFalla) {
       let color = '#6b7280';
       let label = '--';
       if (state === 'bombeando') { color = '#22c55e'; label = 'Bombeando'; }
@@ -1340,6 +1353,18 @@
       else if (state && state.startsWith('detenido')) { color = '#ef4444'; label = state; }
       statusDot.style.background = color;
       statusText.textContent = label;
+      let fault = '';
+      const vf = parseFloat(voltFalla);
+      const cf = parseFloat(corrFalla);
+      const isVoltProtection = state && state.indexOf('volt') >= 0;
+      const isCurrentProtection = state && (state.indexOf('corriente') >= 0 || state.indexOf('recuper') >= 0);
+      if (isVoltProtection && isFinite(vf)) {
+        fault += `V falla: ${vf.toFixed(0)} `;
+      }
+      if (isCurrentProtection && isFinite(cf)) {
+        fault += `I falla: ${cf.toFixed(2)}A`;
+      }
+      faultText.textContent = fault.trim();
     }
 
     const setRelayUi = (isOn) => {
@@ -1459,6 +1484,15 @@
       btnSaveSchedule.onclick = sendSchedule;
     }
 
+    function applyConfigFields(data) {
+      if (data.setpointV !== undefined && !isNaN(parseFloat(data.setpointV))) cfgSetV.value = parseFloat(data.setpointV).toFixed(0);
+      if (data.voltTol !== undefined && !isNaN(parseFloat(data.voltTol))) cfgTolV.value = parseFloat(data.voltTol).toFixed(2);
+      if (data.setpointA !== undefined && !isNaN(parseFloat(data.setpointA))) cfgSetI.value = parseFloat(data.setpointA).toFixed(2);
+      if (data.overPct !== undefined && !isNaN(parseFloat(data.overPct))) cfgOverI.value = parseFloat(data.overPct).toFixed(2);
+      if (data.underPct !== undefined && !isNaN(parseFloat(data.underPct))) cfgUnderI.value = parseFloat(data.underPct).toFixed(2);
+      if (data.recMin !== undefined && !isNaN(parseFloat(data.recMin))) cfgRecMin.value = parseFloat(data.recMin).toFixed(0);
+    }
+
     function connect() {
       const url = document.getElementById('broker').value.trim();
       const tState = document.getElementById('topicState').value.trim();
@@ -1487,6 +1521,10 @@
         if (tCurrent) client.subscribe(tCurrent, { qos: 1 });
         if (tVoltage) client.subscribe(tVoltage, { qos: 1 });
         if (tAdcV) client.subscribe(tAdcV, { qos: 1 });
+        const tCmd = document.getElementById('topicCmd').value.trim();
+        if (tCmd) {
+          client.publish(tCmd, JSON.stringify({ getcfg: 1 }));
+        }
       });
 
       client.on('message', (topic, payload) => {
@@ -1519,6 +1557,9 @@
         // Estado JSON
         try {
           const data = JSON.parse(msg);
+          if (data.cfg === 1) {
+            applyConfigFields(data);
+          }
           if (typeof data.corriente === 'number') {
             setCurrent(data.corriente);
           }
@@ -1539,9 +1580,7 @@
           } else if (typeof data.psi === 'number') {
             setPressure(data.psi);
           }
-          if (data.estado) {
-            setStatus(data.estado);
-          }
+          setStatus(data.estado, data.voltaje_falla, data.corriente_falla);
           if (data.relay_on !== undefined) {
             let relayVal = data.relay_on;
             if (typeof relayVal === 'string') {

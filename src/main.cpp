@@ -74,6 +74,8 @@ const unsigned long gpsIntervalMs = 15000; // publica GNSS cada 15s
 float lastIrms = 0.0f;
 float lastVolts = 0.0f;
 float lastVoltAdc = 0.0f;
+float lastFaultI = 0.0f;
+float lastFaultV = 0.0f;
 const bool DEBUG_ADC_CURRENT = true;
 const unsigned long ADC_DEBUG_INTERVAL_MS = 2000;
 unsigned long lastAdcDebug = 0;
@@ -131,12 +133,17 @@ unsigned long messageUntil = 0;
 // EEPROM layout
 const int EEPROM_ADDR_SETPOINT = 0;               // float
 const int EEPROM_ADDR_RECUP_MIN = sizeof(float);  // uint16_t
+const int EEPROM_ADDR_SETPOINT_V = EEPROM_ADDR_RECUP_MIN + sizeof(uint16_t); // float
+const int EEPROM_ADDR_OVER_PCT   = EEPROM_ADDR_SETPOINT_V + sizeof(float);   // float
+const int EEPROM_ADDR_UNDER_PCT  = EEPROM_ADDR_OVER_PCT   + sizeof(float);   // float
+const int EEPROM_ADDR_VOLT_TOL   = EEPROM_ADDR_UNDER_PCT  + sizeof(float);   // float
 
 // Adelantos de funciones que se usan antes de definirse
 void handleButton();
 unsigned long getTimestamp();
 void publishStatus();
 bool mqttPublish(const char* topic, const char* payload, bool retain);
+void publishConfig();
 
 const char* resetReasonStr(esp_reset_reason_t reason) {
   switch (reason) {
@@ -270,19 +277,35 @@ void doMqtt() {
       }
       if (has("overpct")) {
         float v = getVal("overpct");
-        if (isfinite(v) && v > 0 && v < 1) rangoSobre = v;
+        if (isfinite(v) && v > 0 && v < 1) {
+          rangoSobre = v;
+          EEPROM.put(EEPROM_ADDR_OVER_PCT, rangoSobre);
+          EEPROM.commit();
+        }
       }
       if (has("underpct")) {
         float v = getVal("underpct");
-        if (isfinite(v) && v > 0 && v < 1) rangoBaja = v;
+        if (isfinite(v) && v > 0 && v < 1) {
+          rangoBaja = v;
+          EEPROM.put(EEPROM_ADDR_UNDER_PCT, rangoBaja);
+          EEPROM.commit();
+        }
       }
       if (has("setpointv")) {
         float v = getVal("setpointv");
-        if (isfinite(v) && v >= 50 && v <= 260) setpointV = v;
+        if (isfinite(v) && v >= 50 && v <= 260) {
+          setpointV = v;
+          EEPROM.put(EEPROM_ADDR_SETPOINT_V, setpointV);
+          EEPROM.commit();
+        }
       }
       if (has("volttol")) {
         float v = getVal("volttol");
-        if (isfinite(v) && v > 0 && v < 1) rangoVolt = v;
+        if (isfinite(v) && v > 0 && v < 1) {
+          rangoVolt = v;
+          EEPROM.put(EEPROM_ADDR_VOLT_TOL, rangoVolt);
+          EEPROM.commit();
+        }
       }
       if (has("recmin")) {
         float v = getVal("recmin");
@@ -292,6 +315,11 @@ void doMqtt() {
           EEPROM.put(EEPROM_ADDR_RECUP_MIN, recMin);
           EEPROM.commit();
         }
+      }
+      if (has("getcfg")) {
+        publishConfig();
+      } else {
+        publishConfig(); // responde con la nueva config tras cambios
       }
     }
   });
@@ -490,11 +518,13 @@ void enterRecovery() {
   relayOn = false;
   recStartMs = millis();
   workedBeforeOffMin = workStartMs ? (float)(millis() - workStartMs) / 60000.0f : 0.0f;
+  lastFaultI = lastIrms; // baja corriente
 }
 
 void enterFault() {
   sysState = STATE_FAULT;
   relayOn = false;
+  lastFaultI = lastIrms; // sobrecorriente
 }
 
 File openFileSafe(const char* path, const char* mode) {
@@ -530,8 +560,8 @@ const char* estadoToStr(SysState st) {
   switch (st) {
     case STATE_RUNNING:   return "bombeando";
     case STATE_RECOVERY:  return "recuperando";
-    case STATE_FAULT:     return "detenido_sobrecorriente";
-    case STATE_VOLT_WAIT: return voltFaultHigh ? "detenido_sobrevoltaje" : "detenido_subvoltaje";
+    case STATE_FAULT:     return "Sobre_corriente";
+    case STATE_VOLT_WAIT: return voltFaultHigh ? "Sobre_voltaje" : "Bajo_voltaje";
     case STATE_STARTUP:
     default:              return "inicio";
   }
@@ -562,8 +592,8 @@ void publishStatus() {
   }
   float tRecMin = (sysState == STATE_RECOVERY && recStartMs) ? (float)(millis() - recStartMs) / 60000.0f : 0.0f;
   float tRecTotal = (float)tiempoRecuperacionMs / 60000.0f;
-  float corrFalla = (sysState == STATE_FAULT) ? lastIrms : 0.0f;
-  float voltFalla = (sysState == STATE_VOLT_WAIT) ? voltFaultVal : 0.0f;
+  float corrFalla = lastFaultI;
+  float voltFalla = lastFaultV;
   unsigned long ts = getTimestamp();
 
   char payload[256];
@@ -586,6 +616,17 @@ void publishStatus() {
   mqttPublish(mqttVoltageTopic, scalar, false);
   snprintf(scalar, sizeof(scalar), "%.4f", lastVoltAdc);
   mqttPublish(mqttAdcVTopic, scalar, false);
+}
+
+void publishConfig() {
+  if (!mqtt.connected()) return;
+  char payload[256];
+  const float recMin = (float)tiempoRecuperacionMs / 60000.0f;
+  snprintf(payload, sizeof(payload),
+           "{\"cfg\":1,\"setpointA\":%.2f,\"setpointV\":%.1f,\"overPct\":%.2f,"
+           "\"underPct\":%.2f,\"voltTol\":%.2f,\"recMin\":%.1f}",
+           setpointA, setpointV, rangoSobre, rangoBaja, rangoVolt, recMin);
+  mqttPublish(mqttStateTopic, payload, false);
 }
 void evaluateProtection() {
   const float limiteBajo = setpointA * (1.0f - rangoBaja);
@@ -639,6 +680,7 @@ void evaluateProtection() {
           else if (millis() - voltOutStart >= 3000) {
             voltFaultHigh = lastVolts > voltMax;
             voltFaultVal = lastVolts;
+            lastFaultV = lastVolts;
             voltWaitStart = millis();
             voltOutStart = 0;
             sysState = STATE_VOLT_WAIT;
@@ -865,17 +907,34 @@ void setup() {
   prevDebouncedState = rawButtonState;
   lastDebounceMs = millis();
 
-  EEPROM.begin(64);
+  EEPROM.begin(128);
   // Cargar setpoint y tiempo desde EEPROM si son válidos
   float eSet = 0;
   uint16_t eRecMin = 0;
+  float eSetV = 0, eOver = 0, eUnder = 0, eVoltTol = 0;
   EEPROM.get(EEPROM_ADDR_SETPOINT, eSet);
   EEPROM.get(EEPROM_ADDR_RECUP_MIN, eRecMin);
+  EEPROM.get(EEPROM_ADDR_SETPOINT_V, eSetV);
+  EEPROM.get(EEPROM_ADDR_OVER_PCT, eOver);
+  EEPROM.get(EEPROM_ADDR_UNDER_PCT, eUnder);
+  EEPROM.get(EEPROM_ADDR_VOLT_TOL, eVoltTol);
   if (isfinite(eSet) && eSet >= 1.0f && eSet <= 30.0f) {
     setpointA = eSet;
   }
   if (eRecMin >= 1 && eRecMin <= 1440) {
     tiempoRecuperacionMs = (unsigned long)eRecMin * 60UL * 1000UL;
+  }
+  if (isfinite(eSetV) && eSetV >= 50.0f && eSetV <= 260.0f) {
+    setpointV = eSetV;
+  }
+  if (isfinite(eOver) && eOver > 0 && eOver < 1) {
+    rangoSobre = eOver;
+  }
+  if (isfinite(eUnder) && eUnder > 0 && eUnder < 1) {
+    rangoBaja = eUnder;
+  }
+  if (isfinite(eVoltTol) && eVoltTol > 0 && eVoltTol < 1) {
+    rangoVolt = eVoltTol;
   }
 
   powerOnModem();
