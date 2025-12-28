@@ -117,6 +117,16 @@
       border: 1px solid #1f2937;
     }
     .btn:hover { filter: brightness(1.05); }
+    .page-hidden { display: none !important; }
+    .home-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn-block { width: 100%; justify-content: center; padding: 16px; font-size: 14px; }
+    .btn-disabled {
+      background: #1f2937;
+      color: #94a3b8;
+      border: 1px dashed #334155;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
     .metrics { display:flex; gap:16px; flex-wrap:wrap; }
     .metric-box { flex:1; min-width:180px; background:#0c1427; border:1px solid #1f2937; border-radius:10px; padding:12px; }
     .metric-label { font-size:12px; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; }
@@ -696,10 +706,12 @@
     (function authGateInline() {
       const overlay = document.getElementById('authOverlay');
       if (!overlay) return;
-      const USER = 'rsanchez';
-      const PASS = 'Rsmartpump';
       const KEY = 'panelAuth';
       const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+      const USERS = {
+        rsanchez: { pass: 'Rsmartpump', role: 'editor' },
+        operador1: { pass: 'Rsmartpump1', role: 'viewer' }
+      };
       const userInput = document.getElementById('authUser');
       const passInput = document.getElementById('authPass');
       const btn = document.getElementById('authBtn');
@@ -712,10 +724,12 @@
       function tryLogin() {
         const u = (userInput?.value || '').trim();
         const p = (passInput?.value || '').trim();
-        if (u === USER && p === PASS) {
+        const rec = USERS[u];
+        if (rec && p === rec.pass) {
           hideOverlay();
-          const record = { user: USER, expires: Date.now() + TEN_DAYS_MS };
+          const record = { user: u, role: rec.role, expires: Date.now() + TEN_DAYS_MS };
           try { localStorage.setItem(KEY, JSON.stringify(record)); } catch (e) {}
+          if (window.applyRole) window.applyRole(rec.role);
         } else if (err) {
           err.textContent = 'Acceso denegado';
         }
@@ -724,9 +738,9 @@
       window.authLogin = tryLogin;
       try {
         const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-        if (saved && saved.user === USER && saved.expires > Date.now()) {
+        const rec = saved && USERS[saved.user];
+        if (saved && rec && saved.expires > Date.now()) {
           hideOverlay();
-          return;
         }
       } catch (e) {}
 
@@ -739,7 +753,28 @@
       });
     })();
   </script>
-  <div class="container">
+  <div class="container" id="homePage">
+    <div class="card">
+      <div class="title">Estaciones de Bombeo</div>
+      <div class="subtitle">Selecciona un acueducto</div>
+    </div>
+    <div class="card">
+      <div class="home-grid">
+        <button id="btnAtalaya" class="btn btn-primary btn-block">Acueducto Atalaya</button>
+        <button class="btn btn-disabled btn-block" disabled>Acueducto Calobre</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container page-hidden" id="atalayaPage">
+    <div class="card">
+      <div class="title">Acueducto Atalaya</div>
+      <div class="subtitle">Selecciona una estación</div>
+    </div>
+
+    <details class="card" id="stationMargaritas">
+      <summary>Estación - Pozo Las Margaritas</summary>
+      <div class="fold-body">
     <div class="card">
       <div class="conn-bar">
         <div>
@@ -956,7 +991,7 @@
       </div>
     </details>
 
-    <div class="card">
+    <div class="card" id="settingsCard">
       <details>
         <summary style="cursor:pointer; font-weight:700;">Ajustes (click para desplegar)</summary>
         <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:12px;">
@@ -1001,6 +1036,15 @@
         <span id="cfgSavedMsg" class="caption" style="margin-left:10px;"></span>
       </details>
     </div>
+      </div>
+    </details>
+
+    <details class="card" id="stationLlano">
+      <summary>Estación - Pozo Llano Bonito</summary>
+      <div class="fold-body">
+        <div class="caption">Sin configurar</div>
+      </div>
+    </details>
   </div>
 
   <script>
@@ -1030,6 +1074,46 @@
     const histRange = document.getElementById('histRange');
     const histTableBody = document.getElementById('histTableBody');
     const histEmpty = document.getElementById('histEmpty');
+    const homePage = document.getElementById('homePage');
+    const atalayaPage = document.getElementById('atalayaPage');
+    const btnAtalaya = document.getElementById('btnAtalaya');
+
+    function showPage(page) {
+      const showAtalaya = page === 'atalaya';
+      if (homePage) homePage.style.display = showAtalaya ? 'none' : '';
+      if (atalayaPage) atalayaPage.style.display = showAtalaya ? '' : 'none';
+    }
+
+    function routeFromHash() {
+      const hash = (window.location.hash || '').replace('#', '');
+      showPage(hash === 'atalaya' ? 'atalaya' : 'home');
+    }
+
+    if (btnAtalaya) {
+      btnAtalaya.addEventListener('click', () => {
+        window.location.hash = 'atalaya';
+        showPage('atalaya');
+      });
+    }
+    window.addEventListener('hashchange', routeFromHash);
+    routeFromHash();
+
+    function applyRole(role) {
+      const isViewer = role === 'viewer';
+      const schedule = document.getElementById('detailsSchedule');
+      const settings = document.getElementById('settingsCard');
+      if (schedule) schedule.style.display = isViewer ? 'none' : '';
+      if (settings) settings.style.display = isViewer ? 'none' : '';
+    }
+    window.applyRole = applyRole;
+    (function initRoleFromCache() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('panelAuth') || 'null');
+        if (saved && saved.expires > Date.now() && saved.role) {
+          applyRole(saved.role);
+        }
+      } catch (e) {}
+    })();
 
     const labelsI = [];
     const dataCurrent = [];
