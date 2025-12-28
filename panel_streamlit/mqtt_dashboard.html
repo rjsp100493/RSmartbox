@@ -1467,7 +1467,7 @@
       };
     }
 
-    function addSlot(onVal = "08:00", offVal = "17:00") {
+        function addSlot(onVal = "08:00", offVal = "17:00") {
       if (!scheduleSlots) return;
       const row = document.createElement('div');
       row.className = 'slot-row';
@@ -1480,8 +1480,20 @@
           <label>Hora apagado</label>
           <input type="time" class="sched-off" value="${offVal}">
         </div>
+        <div>
+          <label>Días</label>
+          <div class="days-row">
+            <label><input type="checkbox" class="day-box" value="L" checked> L</label>
+            <label><input type="checkbox" class="day-box" value="M" checked> M</label>
+            <label><input type="checkbox" class="day-box" value="X" checked> X</label>
+            <label><input type="checkbox" class="day-box" value="J" checked> J</label>
+            <label><input type="checkbox" class="day-box" value="V" checked> V</label>
+            <label><input type="checkbox" class="day-box" value="S" checked> S</label>
+            <label><input type="checkbox" class="day-box" value="D" checked> D</label>
+          </div>
+        </div>
         <div class="slot-actions">
-          <button class="icon-btn danger" type="button" title="Quitar horario">−</button>
+          <button class="icon-btn danger" type="button" title="Quitar horario">✖</button>
         </div>
       `;
       const removeBtn = row.querySelector('.icon-btn');
@@ -1496,6 +1508,10 @@
       scheduleSlots.appendChild(row);
     }
 
+      };
+      scheduleSlots.appendChild(row);
+    }
+
     if (scheduleSlots && scheduleSlots.children.length === 0) {
       addSlot("08:00", "17:00");
     }
@@ -1503,22 +1519,22 @@
       btnAddSlot.onclick = () => addSlot("08:00", "17:00");
     }
 
-    function sendSchedule() {
+        function sendSchedule() {
       const tCmd = document.getElementById('topicCmd').value.trim();
       const enabled = schedToggle && schedToggle.classList.contains('on');
-      const dayBoxes = Array.from(scheduleFields.querySelectorAll('input[type="checkbox"]'));
-      const days = dayBoxes.filter(b => b.checked).map(b => b.value);
       const slotRows = Array.from(scheduleFields.querySelectorAll('.slot-row'));
       const slots = slotRows.map(row => {
         const on = row.querySelector('.sched-on')?.value || "00:00";
         const off = row.querySelector('.sched-off')?.value || "00:00";
-        return { on, off };
+        const days = Array.from(row.querySelectorAll('.day-box'))
+                          .filter(b => b.checked)
+                          .map(b => b.value);
+        return { on, off, days };
       });
-      const firstSlot = slots[0] || { on: "00:00", off: "00:00" };
+      const firstSlot = slots[0] || { on: "00:00", off: "00:00", days: [] };
       const payload = {
         schedule: {
           enabled,
-          days,
           slots,
           on: firstSlot.on,
           off: firstSlot.off
@@ -1526,6 +1542,7 @@
       };
       if (client && client.connected) client.publish(tCmd, JSON.stringify(payload));
     }
+
 
     function sendConfig() {
       const tCmd = document.getElementById('topicCmd').value.trim();
