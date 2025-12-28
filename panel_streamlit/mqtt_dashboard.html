@@ -895,6 +895,18 @@
             <label>Tiempo recuperacion (min)</label>
             <input type="number" id="cfgRecMin" value="15">
           </div>
+          <div style="flex:1; min-width:180px;">
+            <label>Tiempo alta corriente (s)</label>
+            <input type="number" id="cfgDelayHigh" value="3">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>Tiempo baja corriente (s)</label>
+            <input type="number" id="cfgDelayLow" value="3">
+          </div>
+          <div style="flex:1; min-width:180px;">
+            <label>Tiempo fuera rango voltaje (s)</label>
+            <input type="number" id="cfgDelayVolt" value="3">
+          </div>
         </div>
         <button id="btnSaveCfg" class="btn btn-blue" style="margin-top:12px;">Guardar ajustes</button>
       </details>
@@ -988,6 +1000,9 @@
     const cfgOverI = document.getElementById('cfgOverI');
     const cfgUnderI = document.getElementById('cfgUnderI');
     const cfgRecMin = document.getElementById('cfgRecMin');
+    const cfgDelayHigh = document.getElementById('cfgDelayHigh');
+    const cfgDelayLow = document.getElementById('cfgDelayLow');
+    const cfgDelayVolt = document.getElementById('cfgDelayVolt');
 
     const chartI = new Chart(document.getElementById('chartI').getContext('2d'), {
       type: 'line',
@@ -1476,6 +1491,9 @@
         overPct: parseFloat(document.getElementById('cfgOverI').value),
         underPct: parseFloat(document.getElementById('cfgUnderI').value),
         recMin: parseFloat(document.getElementById('cfgRecMin').value),
+        delayHigh: parseFloat(cfgDelayHigh.value),
+        delayLow: parseFloat(cfgDelayLow.value),
+        delayVolt: parseFloat(cfgDelayVolt.value),
       };
       if (client && client.connected) client.publish(tCmd, JSON.stringify(payload));
     }
@@ -1492,6 +1510,9 @@
       if (data.overPct !== undefined && !isNaN(parseFloat(data.overPct))) cfgOverI.value = parseFloat(data.overPct).toFixed(2);
       if (data.underPct !== undefined && !isNaN(parseFloat(data.underPct))) cfgUnderI.value = parseFloat(data.underPct).toFixed(2);
       if (data.recMin !== undefined && !isNaN(parseFloat(data.recMin))) cfgRecMin.value = parseFloat(data.recMin).toFixed(0);
+      if (data.delayHigh !== undefined && !isNaN(parseFloat(data.delayHigh))) cfgDelayHigh.value = parseFloat(data.delayHigh).toFixed(0);
+      if (data.delayLow !== undefined && !isNaN(parseFloat(data.delayLow))) cfgDelayLow.value = parseFloat(data.delayLow).toFixed(0);
+      if (data.delayVolt !== undefined && !isNaN(parseFloat(data.delayVolt))) cfgDelayVolt.value = parseFloat(data.delayVolt).toFixed(0);
     }
 
     function connect() {

@@ -76,6 +76,9 @@ float lastVolts = 0.0f;
 float lastVoltAdc = 0.0f;
 float lastFaultI = 0.0f;
 float lastFaultV = 0.0f;
+unsigned long delayHighMs = 3000; // tiempo antes de disparar sobrecorriente
+unsigned long delayLowMs  = 3000; // tiempo antes de disparar baja corriente
+unsigned long delayVoltMs = 3000; // tiempo fuera de rango de voltaje
 const bool DEBUG_ADC_CURRENT = true;
 const unsigned long ADC_DEBUG_INTERVAL_MS = 2000;
 unsigned long lastAdcDebug = 0;
@@ -137,6 +140,9 @@ const int EEPROM_ADDR_SETPOINT_V = EEPROM_ADDR_RECUP_MIN + sizeof(uint16_t); // 
 const int EEPROM_ADDR_OVER_PCT   = EEPROM_ADDR_SETPOINT_V + sizeof(float);   // float
 const int EEPROM_ADDR_UNDER_PCT  = EEPROM_ADDR_OVER_PCT   + sizeof(float);   // float
 const int EEPROM_ADDR_VOLT_TOL   = EEPROM_ADDR_UNDER_PCT  + sizeof(float);   // float
+const int EEPROM_ADDR_DELAY_HIGH = EEPROM_ADDR_VOLT_TOL   + sizeof(float);   // uint16_t (segundos)
+const int EEPROM_ADDR_DELAY_LOW  = EEPROM_ADDR_DELAY_HIGH + sizeof(uint16_t); // uint16_t (segundos)
+const int EEPROM_ADDR_DELAY_VOLT = EEPROM_ADDR_DELAY_LOW  + sizeof(uint16_t); // uint16_t (segundos)
 
 // Adelantos de funciones que se usan antes de definirse
 void handleButton();
@@ -316,11 +322,35 @@ void doMqtt() {
           EEPROM.commit();
         }
       }
-      if (has("getcfg")) {
-        publishConfig();
-      } else {
-        publishConfig(); // responde con la nueva config tras cambios
-      }
+  if (has("delayhigh")) {
+    float v = getVal("delayhigh");
+    if (isfinite(v) && v >= 0 && v <= 600) {
+      delayHighMs = (unsigned long)(v * 1000UL);
+      uint16_t s = (uint16_t)v;
+      EEPROM.put(EEPROM_ADDR_DELAY_HIGH, s);
+      EEPROM.commit();
+    }
+  }
+  if (has("delaylow")) {
+    float v = getVal("delaylow");
+    if (isfinite(v) && v >= 0 && v <= 600) {
+      delayLowMs = (unsigned long)(v * 1000UL);
+      uint16_t s = (uint16_t)v;
+      EEPROM.put(EEPROM_ADDR_DELAY_LOW, s);
+      EEPROM.commit();
+    }
+  }
+  if (has("delayvolt")) {
+    float v = getVal("delayvolt");
+    if (isfinite(v) && v >= 0 && v <= 600) {
+      delayVoltMs = (unsigned long)(v * 1000UL);
+      uint16_t s = (uint16_t)v;
+      EEPROM.put(EEPROM_ADDR_DELAY_VOLT, s);
+      EEPROM.commit();
+    }
+  }
+      // siempre responde con la config actual
+      publishConfig();
     }
   });
 
@@ -624,8 +654,10 @@ void publishConfig() {
   const float recMin = (float)tiempoRecuperacionMs / 60000.0f;
   snprintf(payload, sizeof(payload),
            "{\"cfg\":1,\"setpointA\":%.2f,\"setpointV\":%.1f,\"overPct\":%.2f,"
-           "\"underPct\":%.2f,\"voltTol\":%.2f,\"recMin\":%.1f}",
-           setpointA, setpointV, rangoSobre, rangoBaja, rangoVolt, recMin);
+           "\"underPct\":%.2f,\"voltTol\":%.2f,\"recMin\":%.1f,"
+           "\"delayHigh\":%.0f,\"delayLow\":%.0f,\"delayVolt\":%.0f}",
+           setpointA, setpointV, rangoSobre, rangoBaja, rangoVolt, recMin,
+           delayHighMs / 1000.0f, delayLowMs / 1000.0f, delayVoltMs / 1000.0f);
   mqttPublish(mqttStateTopic, payload, false);
 }
 void evaluateProtection() {
@@ -677,7 +709,7 @@ void evaluateProtection() {
         bool voltFuera = (lastVolts > voltMax) || (lastVolts < voltMin);
         if (voltFuera) {
           if (voltOutStart == 0) voltOutStart = millis();
-          else if (millis() - voltOutStart >= 3000) {
+          else if (millis() - voltOutStart >= delayVoltMs) {
             voltFaultHigh = lastVolts > voltMax;
             voltFaultVal = lastVolts;
             lastFaultV = lastVolts;
@@ -695,11 +727,29 @@ void evaluateProtection() {
         }
 
         if (lastIrms > limiteAlto) {
-          enterFault();
-          setMessage("Detenido por", "sobrecorriente", 3500);
-        } else if (lastIrms < limiteBajo) {
-          enterRecovery();
-          setMessage("Recuperando", "Nivel de Agua", 2000);
+          static unsigned long highStart = 0;
+          if (highStart == 0) highStart = millis();
+          else if (millis() - highStart >= delayHighMs) {
+            highStart = 0;
+            enterFault();
+            setMessage("Detenido por", "sobrecorriente", 3500);
+          }
+        } else {
+          static unsigned long highStart = 0;
+          highStart = 0;
+        }
+
+        if (lastIrms < limiteBajo) {
+          static unsigned long lowStart = 0;
+          if (lowStart == 0) lowStart = millis();
+          else if (millis() - lowStart >= delayLowMs) {
+            lowStart = 0;
+            enterRecovery();
+            setMessage("Recuperando", "Nivel de Agua", 2000);
+          }
+        } else {
+          static unsigned long lowStart = 0;
+          lowStart = 0;
         }
       }
       break;
@@ -907,17 +957,21 @@ void setup() {
   prevDebouncedState = rawButtonState;
   lastDebounceMs = millis();
 
-  EEPROM.begin(128);
+  EEPROM.begin(256);
   // Cargar setpoint y tiempo desde EEPROM si son válidos
   float eSet = 0;
   uint16_t eRecMin = 0;
   float eSetV = 0, eOver = 0, eUnder = 0, eVoltTol = 0;
+  uint16_t eDelayHigh = 0, eDelayLow = 0, eDelayVolt = 0;
   EEPROM.get(EEPROM_ADDR_SETPOINT, eSet);
   EEPROM.get(EEPROM_ADDR_RECUP_MIN, eRecMin);
   EEPROM.get(EEPROM_ADDR_SETPOINT_V, eSetV);
   EEPROM.get(EEPROM_ADDR_OVER_PCT, eOver);
   EEPROM.get(EEPROM_ADDR_UNDER_PCT, eUnder);
   EEPROM.get(EEPROM_ADDR_VOLT_TOL, eVoltTol);
+  EEPROM.get(EEPROM_ADDR_DELAY_HIGH, eDelayHigh);
+  EEPROM.get(EEPROM_ADDR_DELAY_LOW, eDelayLow);
+  EEPROM.get(EEPROM_ADDR_DELAY_VOLT, eDelayVolt);
   if (isfinite(eSet) && eSet >= 1.0f && eSet <= 30.0f) {
     setpointA = eSet;
   }
@@ -936,6 +990,9 @@ void setup() {
   if (isfinite(eVoltTol) && eVoltTol > 0 && eVoltTol < 1) {
     rangoVolt = eVoltTol;
   }
+  if (eDelayHigh <= 600) delayHighMs = (unsigned long)eDelayHigh * 1000UL;
+  if (eDelayLow  <= 600) delayLowMs  = (unsigned long)eDelayLow  * 1000UL;
+  if (eDelayVolt <= 600) delayVoltMs = (unsigned long)eDelayVolt * 1000UL;
 
   powerOnModem();
   delay(2000);
