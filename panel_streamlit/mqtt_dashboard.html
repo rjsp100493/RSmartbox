@@ -1411,11 +1411,18 @@
         const tPrev = parseFloat(extra.t_prev_bombeo_min);
         const tRecAct = parseFloat(extra.t_rec_actual_min);
         const tRecTot = parseFloat(extra.t_rec_total_min || extra.t_rec_total_extra_min);
-        if (isFinite(spA)) extraText += `SP: ${spA.toFixed(2)}A  `;
-        if (isFinite(tBomb)) extraText += `T bombeo: ${tBomb.toFixed(1)}m  `;
-        if (isFinite(tPrev)) extraText += `T prev: ${tPrev.toFixed(1)}m  `;
-        if (isFinite(tRecAct)) extraText += `Rec: ${tRecAct.toFixed(1)}m  `;
-        if (isFinite(tRecTot)) extraText += `Rec total: ${tRecTot.toFixed(1)}m`;
+
+        if (st === 'bombeando') {
+          if (isFinite(spA)) extraText += `Set I: ${spA.toFixed(2)}A  `;
+          if (isFinite(tBomb)) extraText += `T bombeo: ${tBomb.toFixed(1)}m`;
+        } else if (st === 'recuperando') {
+          if (isFinite(spA)) extraText += `Set I: ${spA.toFixed(2)}A  `;
+          if (isFinite(tPrev)) extraText += `T prev: ${tPrev.toFixed(1)}m  `;
+          if (isFinite(tRecAct)) extraText += `T rec: ${tRecAct.toFixed(1)}m  `;
+          if (isFinite(tRecTot)) extraText += `Set T: ${tRecTot.toFixed(1)}m`;
+        } else if (!(st.includes('corriente') || st.includes('voltaje'))) {
+          // en otras condiciones normales, no mostramos extra
+        }
       }
       statusExtra.textContent = extraText.trim();
     }
