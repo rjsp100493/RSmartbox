@@ -1080,8 +1080,8 @@
 
     function showPage(page) {
       const showAtalaya = page === 'atalaya';
-      if (homePage) homePage.style.display = showAtalaya ? 'none' : '';
-      if (atalayaPage) atalayaPage.style.display = showAtalaya ? '' : 'none';
+      if (homePage) homePage.classList.toggle('page-hidden', showAtalaya);
+      if (atalayaPage) atalayaPage.classList.toggle('page-hidden', !showAtalaya);
     }
 
     function routeFromHash() {
