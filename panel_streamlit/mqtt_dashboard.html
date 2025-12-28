@@ -398,11 +398,11 @@
       padding-left: 10%;
     }
     .overlay-estado {
-      left: 6%;
+      left: 5%;
       top: 7%;
       width: 32%;
       height: 24%;
-      padding-left: 3%;
+      padding-left: 2%;
       gap: 6px;
       font-size: clamp(14px, 2.4vw, 22px);
     }
@@ -654,6 +654,18 @@
         <div style="flex:1; min-width:180px;">
           <label>Topic GPS</label>
           <input id="topicGps" value="sim7000g/gps">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic corriente</label>
+          <input id="topicCurrent" value="sim7000g/corriente">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic voltaje</label>
+          <input id="topicVoltage" value="sim7000g/voltaje">
+        </div>
+        <div style="flex:1; min-width:180px;">
+          <label>Topic ADC V</label>
+          <input id="topicAdcV" value="sim7000g/adc_v">
         </div>
         <div style="flex:1; min-width:180px;">
           <label>Topic comando</label>
@@ -913,6 +925,7 @@
     })();
 
     let client = null;
+    let hasMqttData = false;
     const connStatus = document.getElementById('connStatus');
     const ampText = document.getElementById('ampText');
     const ampTs = document.getElementById('ampTs');
@@ -1185,6 +1198,7 @@
       addPointPress(new Date().toLocaleTimeString(), num);
     }
 
+
     function setGps(jsonStr) {
       try {
         const data = JSON.parse(jsonStr);
@@ -1449,12 +1463,16 @@
       const url = document.getElementById('broker').value.trim();
       const tState = document.getElementById('topicState').value.trim();
       const tGps = document.getElementById('topicGps').value.trim();
+      const tCurrent = document.getElementById('topicCurrent').value.trim();
+      const tVoltage = document.getElementById('topicVoltage').value.trim();
+      const tAdcV = document.getElementById('topicAdcV').value.trim();
       const user = document.getElementById('user').value;
       const pass = document.getElementById('pass').value;
 
       if (client) { client.end(true); }
 
       connStatus.textContent = "Conectando...";
+      hasMqttData = false;
       client = mqtt.connect(url, {
         username: user || undefined,
         password: pass || undefined,
@@ -1462,15 +1480,40 @@
       });
 
       client.on('connect', () => {
-        connStatus.textContent = "Conectado";
-        client.subscribe(tState, { qos: 1 });
-        client.subscribe(tGps, { qos: 1 });
+        connStatus.textContent = "Conectado (sin datos)";
+        hasMqttData = false;
+        if (tState) client.subscribe(tState, { qos: 1 });
+        if (tGps) client.subscribe(tGps, { qos: 1 });
+        if (tCurrent) client.subscribe(tCurrent, { qos: 1 });
+        if (tVoltage) client.subscribe(tVoltage, { qos: 1 });
+        if (tAdcV) client.subscribe(tAdcV, { qos: 1 });
       });
 
       client.on('message', (topic, payload) => {
         const msg = payload.toString();
+        const markData = () => {
+          if (!hasMqttData) {
+            hasMqttData = true;
+            connStatus.textContent = "Conectado";
+          }
+        };
         if (topic === tGps) {
           setGps(msg);
+          markData();
+          return;
+        }
+        if (topic === tCurrent) {
+          setCurrent(msg);
+          markData();
+          return;
+        }
+        if (topic === tVoltage) {
+          setVoltage(msg);
+          markData();
+          return;
+        }
+        if (topic === tAdcV) {
+          markData();
           return;
         }
         // Estado JSON
@@ -1499,9 +1542,15 @@
           if (data.estado) {
             setStatus(data.estado);
           }
-          if (typeof data.relay_on === 'boolean') {
-            setRelayUi(data.relay_on);
+          if (data.relay_on !== undefined) {
+            let relayVal = data.relay_on;
+            if (typeof relayVal === 'string') {
+              relayVal = relayVal.toLowerCase();
+            }
+            const isOn = relayVal === true || relayVal === 1 || relayVal === '1' || relayVal === 'true' || relayVal === 'on';
+            setRelayUi(isOn);
           }
+          markData();
         } catch (e) {
           console.warn("Estado parse error", e);
         }
@@ -1530,6 +1579,7 @@
       startDt.value = toIsoLocal(before);
       endDt.value = toIsoLocal(now);
     })();
+
   </script>
 </body>
 </html>

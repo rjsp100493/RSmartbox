@@ -49,6 +49,9 @@ const char mqttPass[] = "";
 const char mqttStateTopic[] = "sim7000g/estado";
 const char mqttCmdTopic[] = "sim7000g/cmd";
 const char mqttGpsTopic[] = "sim7000g/gps";
+const char mqttCurrentTopic[] = "sim7000g/corriente";
+const char mqttVoltageTopic[] = "sim7000g/voltaje";
+const char mqttAdcVTopic[] = "sim7000g/adc_v";
 
 // Factor de calibración de voltaje: Vrms_linea = vrms_adc * voltageScale
 // Ajusta con una referencia conocida
@@ -70,6 +73,10 @@ unsigned long lastGpsPublish = 0;
 const unsigned long gpsIntervalMs = 15000; // publica GNSS cada 15s
 float lastIrms = 0.0f;
 float lastVolts = 0.0f;
+float lastVoltAdc = 0.0f;
+const bool DEBUG_ADC_CURRENT = true;
+const unsigned long ADC_DEBUG_INTERVAL_MS = 2000;
+unsigned long lastAdcDebug = 0;
 
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2); // ajusta dirección si es 0x3F
 bool lcdReady = false;
@@ -128,6 +135,8 @@ const int EEPROM_ADDR_RECUP_MIN = sizeof(float);  // uint16_t
 // Adelantos de funciones que se usan antes de definirse
 void handleButton();
 unsigned long getTimestamp();
+void publishStatus();
+bool mqttPublish(const char* topic, const char* payload, bool retain);
 
 const char* resetReasonStr(esp_reset_reason_t reason) {
   switch (reason) {
@@ -205,6 +214,7 @@ bool connectGprs() {
 void doMqtt() {
   mqtt.setServer(mqttHost, mqttPort);
   mqtt.setKeepAlive(30);
+  mqtt.setBufferSize(512);
   mqtt.setCallback([](char* topic, uint8_t* payload, unsigned int len) {
     String t = String(topic);
     String p;
@@ -353,9 +363,38 @@ void measureCurrentAndVoltage() {
   float vrmsI = 0, vmeanI = 0;
   if (sampleRms(CURRENT_PIN, vrmsI, vmeanI)) {
     float irms = vrmsI / 0.01f;  // SCT013 100A/1V -> 0.01 V/A
-    if (irms < 2.0f) irms = 0.0f; // recorte bajo
+    bool clipped = false;
+    if (irms < 0.5f) {
+      irms = 0.0f; // recorte bajo
+      clipped = true;
+    }
     lastIrms = irms;
     haveCurrent = true;
+
+    if (DEBUG_ADC_CURRENT && (millis() - lastAdcDebug >= ADC_DEBUG_INTERVAL_MS)) {
+      lastAdcDebug = millis();
+      const float meanCnt = vmeanI * (4095.0f / 3.3f);
+      const float vrmsCnt = vrmsI * (4095.0f / 3.3f);
+      const int rawNow = analogRead(CURRENT_PIN);
+      SerialMon.print("ADC corriente: raw=");
+      SerialMon.print(rawNow);
+      SerialMon.print(" meanCnt=");
+      SerialMon.print(meanCnt, 1);
+      SerialMon.print(" vrmsCnt=");
+      SerialMon.print(vrmsCnt, 1);
+      SerialMon.print(" vmean=");
+      SerialMon.print(vmeanI, 3);
+      SerialMon.print(" vrmsV=");
+      SerialMon.print(vrmsI, 4);
+      SerialMon.print(" irms=");
+      SerialMon.print(irms, 3);
+      SerialMon.print(" offset=");
+      SerialMon.print(adcOffset);
+      SerialMon.print(" noiseA=");
+      SerialMon.print(noiseFloorA, 3);
+      SerialMon.print(" clipped=");
+      SerialMon.println(clipped ? "yes" : "no");
+    }
   }
 
   float vrmsV = 0, vmeanV = 0;
@@ -363,6 +402,7 @@ void measureCurrentAndVoltage() {
     float volts = vrmsV * voltageScale;
     if (!isfinite(volts) || volts < 1.0f) volts = 0.0f;
     lastVolts = volts;
+    lastVoltAdc = vrmsV;
     haveVoltage = true;
   }
 
@@ -497,6 +537,20 @@ const char* estadoToStr(SysState st) {
   }
 }
 
+bool mqttPublish(const char* topic, const char* payload, bool retain) {
+  if (!mqtt.connected()) return false;
+  bool ok = mqtt.publish(topic, payload, retain);
+  if (!ok) {
+    SerialMon.print("MQTT publish fallo (");
+    SerialMon.print(topic);
+    SerialMon.print(") len=");
+    SerialMon.print(strlen(payload));
+    SerialMon.print(" state=");
+    SerialMon.println(mqtt.state());
+  }
+  return ok;
+}
+
 void publishStatus() {
   if (!mqtt.connected()) return;
   const char* est = estadoToStr(sysState);
@@ -520,10 +574,18 @@ void publishStatus() {
            ts, lastIrms, lastVolts, est, tTrabajoMin, tRecMin, tRecTotal, corrFalla, voltFalla,
            (relayOn ? "true" : "false"));
 
-  if (mqtt.publish(mqttStateTopic, payload, false)) {
+  if (mqttPublish(mqttStateTopic, payload, false)) {
     SerialMon.print("MQTT estado -> ");
     SerialMon.println(payload);
   }
+
+  char scalar[32];
+  snprintf(scalar, sizeof(scalar), "%.2f", lastIrms);
+  mqttPublish(mqttCurrentTopic, scalar, false);
+  snprintf(scalar, sizeof(scalar), "%.1f", lastVolts);
+  mqttPublish(mqttVoltageTopic, scalar, false);
+  snprintf(scalar, sizeof(scalar), "%.4f", lastVoltAdc);
+  mqttPublish(mqttAdcVTopic, scalar, false);
 }
 void evaluateProtection() {
   const float limiteBajo = setpointA * (1.0f - rangoBaja);
