@@ -34,6 +34,31 @@
       flex-direction: column;
       gap: 12px;
     }
+    .auth-card {
+      background: #0e162b;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 20px;
+      min-width: 280px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .auth-card label {
+      font-size: 12px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .auth-card input {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      background: #0b1020;
+      color: #e5e7eb;
+    }
     body {
       margin: 0; padding: 0;
       font-family: 'Rajdhani', 'Share Tech Mono', sans-serif;
@@ -657,7 +682,15 @@
 </head>
 <body>
   <div id="authOverlay">
-    <div>Autenticación requerida</div>
+    <div class="auth-card">
+      <div>Autenticación requerida</div>
+      <label for="authUser">Usuario</label>
+      <input id="authUser" type="text" autocomplete="username">
+      <label for="authPass">Contraseña</label>
+      <input id="authPass" type="password" autocomplete="current-password">
+      <button id="authBtn" class="btn btn-primary">Entrar</button>
+      <div id="authError" class="caption"></div>
+    </div>
   </div>
   <div class="container">
     <div class="card">
@@ -942,6 +975,10 @@
       const PASS = 'Rsmartpump';
       const KEY = 'panelAuth';
       const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+      const userInput = document.getElementById('authUser');
+      const passInput = document.getElementById('authPass');
+      const btn = document.getElementById('authBtn');
+      const err = document.getElementById('authError');
       try {
         const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
         if (saved && saved.user === USER && saved.expires > Date.now()) {
@@ -949,19 +986,21 @@
           return;
         }
       } catch (e) {}
-      function ask() {
-        const u = prompt('Usuario:');
-        const p = prompt('Contraseña:');
+      function tryLogin() {
+        const u = (userInput?.value || '').trim();
+        const p = (passInput?.value || '').trim();
         if (u === USER && p === PASS) {
           overlay.style.display = 'none';
           const record = { user: USER, expires: Date.now() + TEN_DAYS_MS };
           try { localStorage.setItem(KEY, JSON.stringify(record)); } catch (e) {}
         } else {
-          alert('Acceso denegado');
-          ask();
+          if (err) err.textContent = 'Acceso denegado';
         }
       }
-      ask();
+      if (btn) btn.addEventListener('click', tryLogin);
+      if (passInput) passInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') tryLogin();
+      });
     })();
 
     let client = null;
