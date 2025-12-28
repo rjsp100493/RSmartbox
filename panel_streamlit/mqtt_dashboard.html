@@ -1346,18 +1346,19 @@
     }
 
     function setStatus(state, voltFalla, corrFalla) {
+      const st = (state || '').toLowerCase();
       let color = '#6b7280';
-      let label = '--';
-      if (state === 'bombeando') { color = '#22c55e'; label = 'Bombeando'; }
-      else if (state === 'recuperando') { color = '#f59e0b'; label = 'Recuperando'; }
-      else if (state && state.startsWith('detenido')) { color = '#ef4444'; label = state; }
+      let label = state || '--';
+      if (st === 'bombeando') { color = '#22c55e'; label = 'Bombeando'; }
+      else if (st === 'recuperando') { color = '#f59e0b'; label = 'Recuperando'; }
+      else if (st.includes('corriente') || st.includes('voltaje')) { color = '#ef4444'; }
       statusDot.style.background = color;
       statusText.textContent = label;
       let fault = '';
       const vf = parseFloat(voltFalla);
       const cf = parseFloat(corrFalla);
-      const isVoltProtection = state && state.indexOf('volt') >= 0;
-      const isCurrentProtection = state && (state.indexOf('corriente') >= 0 || state.indexOf('recuper') >= 0);
+      const isVoltProtection = st.includes('voltaje');
+      const isCurrentProtection = st.includes('corriente') || st.includes('recuper');
       if (isVoltProtection && isFinite(vf)) {
         fault += `V falla: ${vf.toFixed(0)} `;
       }
