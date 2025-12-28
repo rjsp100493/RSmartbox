@@ -749,8 +749,7 @@
           <span id="relayLabel">OFF</span>
         </div>
         <div class="panel-updates">
-          <div id="ampTs">Ultima actualizacion: --</div>
-          <div id="voltTs">Ultima actualizacion: --</div>
+          <div id="lastTs">Ultima actualizacion: --</div>
         </div>
       </div>
     </div>
@@ -969,9 +968,8 @@
     let hasMqttData = false;
     const connStatus = document.getElementById('connStatus');
     const ampText = document.getElementById('ampText');
-    const ampTs = document.getElementById('ampTs');
+    const lastTs = document.getElementById('lastTs');
     const voltText = document.getElementById('voltText');
-    const voltTs = document.getElementById('voltTs');
     const gpsTs = document.getElementById('gpsTs');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
@@ -1218,7 +1216,7 @@
       ampText.textContent = valStr;
       const t = new Date();
       const ts = t.toLocaleTimeString();
-      ampTs.textContent = "Ultima actualizacion: " + ts;
+      if (lastTs) lastTs.textContent = "Ultima actualizacion: " + ts;
       addPointCurrent(ts, num);
     }
 
@@ -1230,7 +1228,7 @@
       voltText.textContent = valStr;
       const t = new Date();
       const ts = t.toLocaleTimeString();
-      voltTs.textContent = "Ultima actualizacion: " + ts;
+      if (lastTs) lastTs.textContent = "Ultima actualizacion: " + ts;
       addPointVolt(ts, num);
     }
 
@@ -1416,15 +1414,18 @@
           if (isFinite(spA)) extraText += `Set I: ${spA.toFixed(2)}A  `;
           if (isFinite(tBomb)) extraText += `T bombeo: ${tBomb.toFixed(1)}m`;
         } else if (st === 'recuperando') {
-          if (isFinite(spA)) extraText += `Set I: ${spA.toFixed(2)}A  `;
-          if (isFinite(tPrev)) extraText += `T prev: ${tPrev.toFixed(1)}m  `;
-          if (isFinite(tRecAct)) extraText += `T rec: ${tRecAct.toFixed(1)}m  `;
-          if (isFinite(tRecTot)) extraText += `Set T: ${tRecTot.toFixed(1)}m`;
+          let line1 = '';
+          let line2 = '';
+          if (isFinite(spA)) line1 += `Set I: ${spA.toFixed(2)}A  `;
+          if (isFinite(tPrev)) line1 += `T prev: ${tPrev.toFixed(1)}m`;
+          if (isFinite(tRecAct)) line2 += `T rec: ${tRecAct.toFixed(1)}m  `;
+          if (isFinite(tRecTot)) line2 += `Set T: ${tRecTot.toFixed(1)}m`;
+          extraText = `${line1.trim()}<br>${line2.trim()}`.trim();
         } else if (!(st.includes('corriente') || st.includes('voltaje'))) {
           // en otras condiciones normales, no mostramos extra
         }
       }
-      statusExtra.textContent = extraText.trim();
+      statusExtra.innerHTML = extraText.trim();
     }
 
     const setRelayUi = (isOn) => {
