@@ -626,13 +626,15 @@ void publishStatus() {
   float voltFalla = lastFaultV;
   unsigned long ts = getTimestamp();
 
-  char payload[256];
+  char payload[320];
   snprintf(payload, sizeof(payload),
            "{\"ts\":%lu,\"corriente\":%.2f,\"voltaje\":%.1f,\"estado\":\"%s\","
            "\"t_trabajo_min\":%.1f,\"t_recuperando_min\":%.1f,\"t_rec_total_min\":%.1f,"
-           "\"corriente_falla\":%.2f,\"voltaje_falla\":%.1f,\"relay_on\":%s}",
+           "\"corriente_falla\":%.2f,\"voltaje_falla\":%.1f,\"relay_on\":%s,"
+           "\"setpointA\":%.2f,\"t_bombeo_min\":%.1f,\"t_prev_bombeo_min\":%.1f,"
+           "\"t_rec_actual_min\":%.1f,\"t_rec_total_extra_min\":%.1f}",
            ts, lastIrms, lastVolts, est, tTrabajoMin, tRecMin, tRecTotal, corrFalla, voltFalla,
-           (relayOn ? "true" : "false"));
+           (relayOn ? "true" : "false"), setpointA, tTrabajoMin, workedBeforeOffMin, tRecMin, tRecTotal);
 
   if (mqttPublish(mqttStateTopic, payload, false)) {
     SerialMon.print("MQTT estado -> ");

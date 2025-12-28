@@ -299,6 +299,20 @@
       flex: 1;
       min-width: 140px;
     }
+    .days-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .days-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
     .slot-actions {
       display: flex;
       align-items: center;
@@ -621,6 +635,12 @@
       margin-top: 6px;
       letter-spacing: 0.5px;
     }
+    .extra-text {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 4px;
+      letter-spacing: 0.4px;
+    }
     @media (max-width: 880px) {
       .pipe-grid {
         grid-template-columns: 1fr;
@@ -699,6 +719,7 @@
             <div id="statusText">--</div>
           </div>
           <div class="fault-text" id="faultText"></div>
+          <div class="extra-text" id="statusExtra"></div>
         </div>
 
         <div class="overlay-screen overlay-volt">
@@ -909,6 +930,7 @@
           </div>
         </div>
         <button id="btnSaveCfg" class="btn btn-blue" style="margin-top:12px;">Guardar ajustes</button>
+        <span id="cfgSavedMsg" class="caption" style="margin-left:10px;"></span>
       </details>
     </div>
   </div>
@@ -1360,7 +1382,7 @@
       }
     }
 
-    function setStatus(state, voltFalla, corrFalla) {
+    function setStatus(state, voltFalla, corrFalla, extra) {
       const st = (state || '').toLowerCase();
       let color = '#6b7280';
       let label = state || '--';
@@ -1381,6 +1403,21 @@
         fault += `I falla: ${cf.toFixed(2)}A`;
       }
       faultText.textContent = fault.trim();
+      // Info extra: setpoint, tiempos
+      let extraText = '';
+      if (extra) {
+        const spA = parseFloat(extra.setpointA);
+        const tBomb = parseFloat(extra.t_bombeo_min);
+        const tPrev = parseFloat(extra.t_prev_bombeo_min);
+        const tRecAct = parseFloat(extra.t_rec_actual_min);
+        const tRecTot = parseFloat(extra.t_rec_total_min || extra.t_rec_total_extra_min);
+        if (isFinite(spA)) extraText += `SP: ${spA.toFixed(2)}A  `;
+        if (isFinite(tBomb)) extraText += `T bombeo: ${tBomb.toFixed(1)}m  `;
+        if (isFinite(tPrev)) extraText += `T prev: ${tPrev.toFixed(1)}m  `;
+        if (isFinite(tRecAct)) extraText += `Rec: ${tRecAct.toFixed(1)}m  `;
+        if (isFinite(tRecTot)) extraText += `Rec total: ${tRecTot.toFixed(1)}m`;
+      }
+      statusExtra.textContent = extraText.trim();
     }
 
     const setRelayUi = (isOn) => {
@@ -1496,6 +1533,12 @@
         delayVolt: parseFloat(cfgDelayVolt.value),
       };
       if (client && client.connected) client.publish(tCmd, JSON.stringify(payload));
+      // aviso temporal
+      const msg = document.getElementById('cfgSavedMsg');
+      if (msg) {
+        msg.textContent = "Ajustes aplicados";
+        setTimeout(() => { msg.textContent = ""; }, 2200);
+      }
     }
 
     document.getElementById('btnSaveCfg').onclick = sendConfig;
@@ -1603,7 +1646,7 @@
           } else if (typeof data.psi === 'number') {
             setPressure(data.psi);
           }
-          setStatus(data.estado, data.voltaje_falla, data.corriente_falla);
+          setStatus(data.estado, data.voltaje_falla, data.corriente_falla, data);
           if (data.relay_on !== undefined) {
             let relayVal = data.relay_on;
             if (typeof relayVal === 'string') {
