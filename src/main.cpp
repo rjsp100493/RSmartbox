@@ -113,6 +113,14 @@ float voltFaultVal = 0.0f;
 bool manualOverride = false;
 bool manualRelay = false;
 bool manualOffState = false;
+bool modemReady = false;
+bool gprsReady = false;
+unsigned long lastConnRetryMs = 0;
+const unsigned long connRetryIntervalMs = 30000; // reintento red/MQTT cada 30s
+bool netDownLogged = false;
+unsigned long lastNoNetLogMs = 0;
+const unsigned long noNetLogIntervalMs = 10000; // aviso "SIN RED" cada 10s
+uint32_t connRetryCount = 0;
 
 // Botón / edición
 bool rawButtonState = HIGH;
@@ -224,7 +232,7 @@ bool connectGprs() {
   return true;
 }
 
-void doMqtt() {
+bool doMqtt() {
   mqtt.setServer(mqttHost, mqttPort);
   mqtt.setKeepAlive(30);
   mqtt.setBufferSize(512);
@@ -363,10 +371,11 @@ void doMqtt() {
   if (!mqtt.connect(clientId.c_str(), mqttUser, mqttPass)) {
     SerialMon.print("MQTT connect falló, rc=");
     SerialMon.println(mqtt.state());
-    return;
+    return false;
   }
   SerialMon.println("MQTT conectado.");
   mqtt.subscribe(mqttCmdTopic);
+  return true;
 }
 
 bool sampleRms(uint8_t pin, float& vrms, float& vmean) {
@@ -802,10 +811,20 @@ void updateLcd() {
       }
       case STATE_RUNNING:
       default: {
-        unsigned long minutos = workStartMs ? (millis() - workStartMs) / 60000UL : 0;
-        l1 = "Bombeando T=" + String((int)minutos);
-        // Formato compacto: "10.0A 120V SP=10" (16 chars máx)
-        l2 = String(lastIrms, 1) + "A " + String((int)lastVolts) + "V SP=" + String((int)setpointA);
+        if (!mqtt.connected()) {
+          unsigned long remain = 0;
+          unsigned long elapsed = millis() - lastConnRetryMs;
+          if (elapsed < connRetryIntervalMs) {
+            remain = (connRetryIntervalMs - elapsed) / 1000UL;
+          }
+          l1 = "SIN RED";
+          l2 = "Reintento " + String((int)remain) + "s";
+        } else {
+          unsigned long minutos = workStartMs ? (millis() - workStartMs) / 60000UL : 0;
+          l1 = "Bombeando T=" + String((int)minutos);
+          // Formato compacto: "10.0A 120V SP=10" (16 chars máx)
+          l2 = String(lastIrms, 1) + "A " + String((int)lastVolts) + "V SP=" + String((int)setpointA);
+        }
         break;
       }
     }
@@ -1003,18 +1022,18 @@ void setup() {
   delay(500);
 
   SerialMon.println("Inicializando módem...");
-  if (!modem.init()) {
-    SerialMon.println("Fallo modem.init()");
-    return;
+  modemReady = modem.init();
+  if (!modemReady) {
+    SerialMon.println("Fallo modem.init(); continuando en modo local");
+  } else {
+    modem.enableGPS();
+    gprsReady = connectGprs();
+    if (!gprsReady) {
+      SerialMon.println("No hay GPRS al arranque; continuando en modo local");
+    } else {
+      doMqtt();
+    }
   }
-  modem.enableGPS();
-
-  if (!connectGprs()) {
-    SerialMon.println("No hay GPRS, abortando");
-    return;
-  }
-
-  doMqtt();
 
   // Calibración de offset en vacío
   SerialMon.println("Calibrando offset ADC...");
@@ -1068,9 +1087,39 @@ void loop() {
   handleButton();
 
   if (mqtt.connected()) {
+    netDownLogged = false;
     mqtt.loop();
-  } else {
-    doMqtt();
+  } else if (modemReady && (millis() - lastConnRetryMs >= connRetryIntervalMs)) {
+    lastConnRetryMs = millis();
+    connRetryCount++;
+    SerialMon.print("SIN RED -> intento #");
+    SerialMon.print(connRetryCount);
+    SerialMon.println(" de reconexion");
+    if (!modem.isGprsConnected()) {
+      SerialMon.println("Reintentando GPRS...");
+      gprsReady = connectGprs();
+    } else {
+      gprsReady = true;
+    }
+    if (gprsReady) {
+      bool ok = doMqtt();
+      if (ok) {
+        SerialMon.println("Red restablecida: MQTT conectado");
+        netDownLogged = false;
+      } else {
+        SerialMon.println("SIN RED: fallo reconexion MQTT");
+      }
+    } else {
+      SerialMon.println("SIN RED: sin GPRS");
+    }
+  } else if (!mqtt.connected() && (millis() - lastNoNetLogMs >= noNetLogIntervalMs)) {
+    lastNoNetLogMs = millis();
+    if (!netDownLogged) {
+      SerialMon.println("SIN RED: operando en modo local");
+      netDownLogged = true;
+    } else {
+      SerialMon.println("SIN RED: esperando siguiente reintento...");
+    }
   }
 
   unsigned long now = millis();
